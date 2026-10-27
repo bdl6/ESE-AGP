@@ -1,0 +1,22 @@
+# Synthetic debugging data only. These are not Amazon or thesis experiment results.
+data:
+  input: examples/tiny_interactions.jsonl
+  output: data/processed/tiny.json
+  min_user_events: 1
+  min_item_events: 1
+  max_session_length: 20
+  train_ratio: 0.8
+  valid_ratio: 0.1
+model:
+  dim: 32
+  layers: 2
+  dropout: 0.0
+training:
+  device: auto
+  seed: 42
+  batch_size: 16
+  learning_rate: 0.01
+  epochs: 40
+  patience: 8
+  top_k: 20
+  run_dir: runs/tiny

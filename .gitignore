@@ -1,0 +1,38 @@
+# Local Python environments
+.venv/
+venv/
+
+# Credentials
+.env
+.env.*
+!.env.example
+
+# Python caches and build output
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+build/
+dist/
+*.egg-info/
+
+# Downloaded and generated project artifacts
+data/raw/
+data/interim/
+data/processed/
+data/entities/
+runs/
+artifacts/
+.cache/
+*.duckdb
+*.duckdb.wal
+*.duckdb.tmp/
+
+# Editor and operating-system files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

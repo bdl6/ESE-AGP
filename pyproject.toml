@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=78"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ese-agp"
+version = "0.1.0"
+description = "Stepwise engineering reproduction of a session graph recommender"
+requires-python = ">=3.12,<3.13"
+dependencies = ["torch==2.9.0", "PyYAML==6.0.3", "numpy==2.3.4"]
+
+[project.optional-dependencies]
+dev = ["pytest==8.4.2"]
+
+[project.scripts]
+ese-agp = "ese_agp.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
