@@ -1,17 +1,17 @@
 # ESE-AGP 代码设计与实施顺序
 
-日期：2026-10-27。状态：第一阶段局部图基线与 venv CPU 环境已完成，30 项测试及人工小数据训练链路通过；尚未开始真实数据训练。与项目根目录 `PLAN.md` 配套；后者规定数据与实验范围，本文规定完整模型的模块边界、数据结构和前反向实现。
+日期：2026-10-28。Day02 已在服务器实现真实数据预处理与可选 ID/类别/相对价格融合，43 项测试及 CUDA 前反向通过。全量预处理、两组各20轮训练及独立验证已完成，结果见 `docs/DAY2_REPORT.md`。本文仍包含完整模型的后续设计，不能将全局图/剪枝/多视角当作已实现。
 
-第一阶段为方便逐文件学习，先用 `data.py / evaluation.py / model.py / training.py / cli.py` 平铺模块实现小闭环；后续扩展时按下文拆为子包。当前模型仅使用 ID embedding、局部图与单视角，tiny 配置为 32 维；下文的属性融合、256 维完整配置、全局图与剪枝仍是后续设计。当前 checkpoint 支持推理加载，训练断点续跑命令尚未实现。
+当前继续使用平铺模块便于学习：新增 `download.py / amazon.py / artifacts.py / features.py`，`model.py` 通过 `use_item_features` 切换 ID-only/属性局部图。正式配置为 256 维，tiny 为 32 维。完整全局图与剪枝仍待实现；checkpoint 当前支持推理加载，尚无中断续训命令。
 
 ## 1. 代码如何拆分
 
-使用一个 Python 包和统一命令入口，先完成可训练链路，再通过配置逐项增加模块。环境统一使用项目 `.venv`，不使用全局 site-packages。所有运行、安装和测试命令都由 `.venv\Scripts\python.exe` 发起，依赖通过 `python -m pip` 安装；`.venv` 加入 Git 忽略规则。
+使用一个 Python 包和统一命令入口，先完成可训练链路，再通过配置逐项增加模块。环境统一使用项目 `.venv`，不使用全局 site-packages。服务器运行与测试由 `.venv/bin/python` 发起，依赖通过 `python -m pip` 安装；`.venv` 加入 Git 忽略规则。
 
 ```text
 ese-agp/
 ├── PLAN.md / CODE_DESIGN.md / README.md
-├── pyproject.toml / requirements.lock / .gitignore
+├── pyproject.toml / uv.lock / .gitignore
 ├── configs/                     # 主配置、小样本配置、三组消融配置
 ├── src/ese_agp/
 │   ├── __main__.py / cli.py      # prepare/extract/build-graphs/train/evaluate/export/serve

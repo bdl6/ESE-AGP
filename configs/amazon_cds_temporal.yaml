@@ -1,0 +1,28 @@
+# Day02：全类目时间协议，局部图 + ID/类别/价格属性；不含全局图或剪枝。
+data:
+  format: amazon2023
+  reviews: data/raw/amazon2023/CDs_and_Vinyl.jsonl.gz
+  metadata: data/raw/amazon2023/meta_CDs_and_Vinyl.jsonl.gz
+  output: data/processed/amazon_cds_v2
+  min_user_events: 3
+  min_item_events: 5
+  max_session_length: 20
+  train_ratio: 0.8
+  valid_ratio: 0.1
+  user_sample_modulus: 1  # 1=全部用户；大于1仅用于完整用户历史抽样排错
+  threads: 4
+model:
+  dim: 256
+  layers: 2
+  dropout: 0.2
+  use_item_features: true
+  candidate_chunk_size: 2048
+training:
+  device: auto  # 启动时通过 CUDA_VISIBLE_DEVICES 显式选空闲 GPU
+  seed: 42
+  batch_size: 64
+  learning_rate: 0.001
+  epochs: 20
+  patience: 3
+  top_k: 20
+  run_dir: runs/amazon_cds_local_attrs

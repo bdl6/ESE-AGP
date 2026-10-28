@@ -1,64 +1,63 @@
+> 当前 `configs/amazon_cds.yaml` / `amazon_cds_id_only.yaml` 已切换为第三章论文的全局过滤、随机会话 9:1 协议。
+> 旧时间协议使用 `configs/amazon_cds_temporal.yaml` / `amazon_cds_id_only_temporal.yaml`；历史数据和结果保留。
+> 新协议没有独立验证集，固定轮数保存最后一轮；详细步骤与实现选择见 [论文数据协议](docs/PAPER_DATA_PROTOCOL.md)。
+
 # ESE-AGP
 
-第三章会话推荐模型的分阶段工程复现，同时用于学习 PyTorch 和准备推荐算法实习面试。
+融合实体语义增强与自适应图剪枝的会话推荐项目，分阶段复现并配套代码学习与推荐算法实习面试练习。
 
-**当前是第一阶段：局部会话图基线。** 已实现小数据会话准备、时间切分、训练商品映射、热门/转移基线、局部图注意力模型、全候选交叉熵训练和 checkpoint 评估。商品属性、行为全局图、实体语义图、自适应剪枝和多视角 max 尚待后续实现。
+**当前主项目：服务器 `61.162.193.19_rag:/data1/rag/zhy/ESE-AGP`。** Day02 已实现真实 Amazon 数据适配、Parquet 产物和 ID/类别/相对价格融合，43 项测试通过，CUDA 前反向通过。已完成完整类目下载/预处理、两组各20轮训练及独立验证；真实结果见 `docs/DAY2_REPORT.md`。
 
-`examples/tiny_interactions.jsonl` 是人工构造的调试数据，不能作为 Amazon、论文复现效果或业务收益的证据。当前读取器把小型 JSONL 装入内存；真实 Amazon 数据的流式下载、元数据清洗、外部排序和 Parquet 处理属于下一阶段。
+当前模型为局部会话图＋单视角基线。全局行为图、实体语义图、可微剪枝、多视角 max 和推理 API 仍待后续实现。`examples/tiny_interactions.jsonl` 仅为人工排错数据；正式输入来自 Amazon Reviews 2023 CDs_and_Vinyl 的官方原始 review/meta 文件。
 
 ## 环境
 
-Windows / Python 3.12，项目环境使用标准库 `venv`，目录为 `.venv`。在项目根目录执行 PowerShell 命令：
+服务器使用项目 `.venv`：Python 3.12.13、PyTorch 2.9.0+cu126。执行命令统一调用 `.venv/bin/python`，不必激活环境。依赖在 `pyproject.toml` 声明、`uv.lock` 锁定，保留 CPU/CUDA 互斥 extra；如使用 uv 重建环境，运行 `uv sync --locked --extra cu126 --extra dev`。
 
-```powershell
-# 仅在尚无 .venv 时创建
-python -m venv .venv
-
-# 已创建环境可直接从这里开始，无需激活或更改系统执行策略
-# 第一阶段先用 CPU 完成小数据验证
-.\.venv\Scripts\python.exe -m pip install torch==2.9.0+cpu --index-url https://download.pytorch.org/whl/cpu
-.\.venv\Scripts\python.exe -m pip install -e '.[dev]'
-.\.venv\Scripts\python.exe -m ese_agp doctor
+```bash
+cd /data1/rag/zhy/ESE-AGP
+.venv/bin/python -m pytest -q
+CUDA_VISIBLE_DEVICES=7 .venv/bin/python -m ese_agp doctor
 ```
 
-安装使用 [PyTorch 官方源](https://pytorch.org/get-started/previous-versions/)。本次 CUDA 12.6 大包下载持续停滞，第一阶段改用 CPU；GPU 环境验收仍未完成。`doctor` 检查实际解释器、环境隔离、CUDA 可用性以及一次矩阵前反向。包本身不依赖 CUDA，`device: auto` 会选择可用设备。
+运行前按实际空闲显存选择 GPU。doctor 检查解释器、CUDA 可用性与一次矩阵前反向；本次另验证了 256 维属性局部 GNN 的 CUDA 梯度。
 
-`requirements.lock` 记录本次实际安装的 CPU 环境依赖；重建时运行 `.\.venv\Scripts\python.exe -m pip install -r requirements.lock` 和 `.\.venv\Scripts\python.exe -m pip install -e . --no-deps`。它是本机 Python/Windows 环境快照，不承诺跨平台通用。
+## 真实数据流程
 
-正式训练前安装 CUDA 版本并重新验收：`.\.venv\Scripts\python.exe -m pip install torch==2.9.0+cu126 --index-url https://download.pytorch.org/whl/cu126`，然后运行 `doctor`，要求 `cuda_available` 为 true。更换后应重新生成环境锁文件，不能继续套用 CPU 的 torch 锁定行。
-
-## 跑通第一阶段
-
-```powershell
-.\.venv\Scripts\python.exe -m pytest -q
-.\.venv\Scripts\python.exe -m ese_agp prepare --config configs/tiny.yaml
-.\.venv\Scripts\python.exe -m ese_agp baseline --config configs/tiny.yaml
-.\.venv\Scripts\python.exe -m ese_agp train --config configs/tiny.yaml
-.\.venv\Scripts\python.exe -m ese_agp evaluate --config configs/tiny.yaml
+```bash
+.venv/bin/python -m ese_agp download --config configs/amazon_cds.yaml
+.venv/bin/python -m ese_agp prepare --config configs/amazon_cds.yaml
+.venv/bin/python -m ese_agp baseline --config configs/amazon_cds.yaml --split valid
+CUDA_VISIBLE_DEVICES=7 .venv/bin/python -m ese_agp train --config configs/amazon_cds.yaml
+CUDA_VISIBLE_DEVICES=7 .venv/bin/python -m ese_agp train --config configs/amazon_cds_id_only.yaml
+CUDA_VISIBLE_DEVICES=7 .venv/bin/python -m ese_agp evaluate --config configs/amazon_cds.yaml --split valid
 ```
 
-训练和基线命令默认只看验证集。实验方案确定后，分别执行 `baseline --config configs/tiny.yaml --split test` 与 `evaluate --config configs/tiny.yaml --split test` 生成测试报告；人工调试数据可以完整走一遍，真实数据不要反复查看测试集调参。
+已有 `data/processed/amazon_cds_v2/manifest.json` 时跳过 prepare；要重建请改 `data.output` 为新目录。训练会覆盖同名 run_dir，保留实验时先修改运行目录。数据/模型/日志均由 Git 忽略。
 
-`prepare` 输出 `data/processed/tiny.json`；基线结果、每轮日志、最佳模型及评估报告写入 `runs/tiny/`。数据与 checkpoint 绑定同一指纹；更换商品编号或切分后，旧 checkpoint 会被拒绝加载。目前支持保存和推理加载，尚无中断续训命令。重复运行训练会覆盖同名运行目录，保留实验时先修改配置中的 `run_dir`。
+完整下载支持连续前缀续传、分段区间/ETag 校验与 gzip CRC。预处理用 DuckDB 限制内存、落盘运算；输出 Parquet 样本，以及商品目录、属性索引、热门榜、商品安全文本、统计和文件指纹。训练样本列使用紧凑 Arrow 数据，按需生成样本对象；原始评论和元数据文本不会整体展开进 Python 列表。样本列当前仍驻留内存，更大规模需进一步扩展读取策略。
 
-可选激活环境：`.\.venv\Scripts\Activate.ps1`。不激活时，继续使用上面的明确解释器路径即可。
+## 数据与模型口径
 
-## 数据与评估口径
+- Amazon 是评论/评分记录，由它构造的是代理会话，不是实际点击日志；商品元数据/价格是快照。
+- 以用户首次事件锚定固定 24 小时窗口，至少两次交互；先按原始会话结束时间确定 80%/10%/10% 分位边界，删除跨界会话，再做训练内过滤。
+- 用户至少 3 次、商品至少 5 次。商品须有有效末级类别与正价格。目录和类别/价格统计只从训练期拟合，不使用评估商品或反馈列拟合特征。
+- 最近最多 20 次含目标，输入最多 19 次。未知交互保留为 0，不补连未知位置两侧；未知评估目标计入全分母 miss，全未知历史走训练热门。
+- ID/类别/类内相对价格档位各自查 embedding，拼接投影后输入局部 GNN。价格使用论文式 3-28..31，档位平移到 1..50，0 预留。
+- GNN 聚合入邻居并有独立自节点通路；按原点击位置平均，重复商品多次参与池化。候选为全部训练目录，允许已见商品再次推荐，并列按 ID 升序。
+- 候选点积分块后拼成全 logits，只计算一次完整交叉熵，不逐块归一化。评价只把 Top-K 排名传回 CPU。
+- 主指标 HR@20/MRR@20，另报已知目标子集和 OOV 比例。日常比较使用验证集，测试集只在最终方案确定后显式 `--split test`。
+- checkpoint 绑定完整数据/目录/属性身份，支持推理加载；尚无训练断点续跑命令。
 
-输入每行包含 `user_id`、`item_id`、`timestamp`，时间戳单位为毫秒。按用户首次事件为原点划分固定 24 小时窗口，保留最近 20 次事件，最后一件是目标。时间切分边界由未过滤会话结束时间确定，跨界会话删除；用户/商品频次与目录只从训练期拟合。小样本配置阈值为 1，主实验计划的阈值仍为用户 3、商品 5。
+## 学习顺序
 
-商品目录编号 `1..N`，`0` 表示 padding/OOV。前缀 `[A, unknown, B]` 不会建立 `A→B`；重复商品共享会话内节点，池化时按实际点击位置重复计数。验证/测试未知目标计 miss，另报已知目标指标；全未知前缀走训练热门榜。候选为全部训练目录，允许推荐已见商品，并列按商品 ID 升序。
+1. `docs/DAY1.md`：前缀、标签、局部图与训练五步骤。
+2. `docs/DAY2.md`：真实数据协议、商品特征、运行步骤和面试问答。
+3. `src/ese_agp/data.py` / `evaluation.py`：小数据参考实现、统一指标和基线。
+4. `src/ese_agp/features.py` / `model.py`：属性查表、融合、局部图与候选打分。
+5. `src/ese_agp/amazon.py` / `artifacts.py`：大文件处理、时间切分、Parquet 与指纹。
+6. `src/ese_agp/training.py`：训练、验证、早停、吞吐与保存加载。
 
-模型输出 `B×N` 原始 logits，标签是 `item_id - 1`，直接送入 [CrossEntropyLoss](https://docs.pytorch.org/docs/2.9/generated/torch.nn.CrossEntropyLoss.html)。邻居注意力只聚合入边，使用 [scatter_reduce](https://docs.pytorch.org/docs/2.9/generated/torch.Tensor.scatter_reduce_.html) 实现稳定分组 softmax，另有独立自节点通路。
+代码、配置和测试均有中文说明。完整目标及与论文的差异见 `PLAN.md`、`CODE_DESIGN.md`；软剪枝等后续设计不能当作已经实现的成果。
 
-主指标为 HR@20/MRR@20，附带 HR@1、OOV 比例和样本数。人工数据候选很少，HR@20 很容易达到 1，不能据此证明模型强于基线；这里用于检查实现，泛化结论必须等待真实数据和消融实验。
-
-## 阅读顺序
-
-1. `src/ese_agp/data.py`：交互如何变成前缀、目标和局部图。
-2. `src/ese_agp/evaluation.py`：先手算 HR/MRR，再看热门与转移策略。
-3. `src/ese_agp/model.py`：节点 → 入邻居聚合 → 按位置平均 → 候选打分。
-4. `src/ese_agp/training.py`：原始 logits、交叉熵、反向、更新、验证和保存。
-5. `docs/DAY1.md`：第一阶段学习任务与面试问答。
-
-完整范围、论文差异与后续顺序见 `PLAN.md` 和 `CODE_DESIGN.md`。本项目的可微软剪枝、时间评估协议和具体图层属于明确披露的复现选择；完整模型尚未完成，不使用论文原表数字充当本项目结果。
+数据来源：[Amazon Reviews 2023](https://amazon-reviews-2023.github.io/)；[原始字段说明](https://amazon-reviews-2023.github.io/data_loading/jsonl.html)。本项目的时间协议与论文随机切分不同，不直接拿论文原表数字排名。

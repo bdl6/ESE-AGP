@@ -1,23 +1,61 @@
+# 打包工具：安装本项目时由 setuptools 构建/注册 Python 包。
 [build-system]
 requires = ["setuptools>=78"]
 build-backend = "setuptools.build_meta"
 
+# 包的名称、版本、Python 范围及基础依赖，不是模型训练超参数。
 [project]
 name = "ese-agp"
 version = "0.1.0"
 description = "Stepwise engineering reproduction of a session graph recommender"
 requires-python = ">=3.12,<3.13"
-dependencies = ["torch==2.9.0", "PyYAML==6.0.3", "numpy==2.3.4"]
+dependencies = [
+    "PyYAML==6.0.3",
+    "numpy==2.3.4",
+    "duckdb==1.4.1",
+    "pyarrow==22.0.0",
+]
 
+# 按用途选择额外依赖：cpu/cu126 为不同 PyTorch 源，dev 为测试工具。
 [project.optional-dependencies]
+cpu = ["torch==2.9.0"]
+cu126 = ["torch==2.9.0"]
 dev = ["pytest==8.4.2"]
 
+# 安装后的 ese-agp 命令等价于调用 ese_agp.cli:main。
 [project.scripts]
 ese-agp = "ese_agp.cli:main"
 
+# 从 src/ 发现 Python 包，避免把测试或数据目录当成安装包。
 [tool.setuptools.packages.find]
 where = ["src"]
 
+# pytest 默认只找 tests/，并把 src/ 加入导入路径，便于直接运行源码测试。
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+
+# 服务器现有 uv 配置：CPU 与 CUDA 两种额外依赖互斥，不能同时选择。
+[tool.uv]
+conflicts = [
+    [{ extra = "cpu" }, { extra = "cu126" }],
+]
+
+# 根据选定的 extra 把 torch 路由到对应官方索引，同一版本号可有不同构建。
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cpu", extra = "cpu" },
+    { index = "pytorch-cu126", extra = "cu126" },
+]
+
+[[tool.uv.index]]
+# PyTorch CPU 官方索引；explicit=true 表示仅显式指定的包使用此源。
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+# PyTorch CUDA 12.6 官方索引；实际 GPU 可用性仍需运行环境检查。
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true

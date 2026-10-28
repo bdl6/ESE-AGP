@@ -1,3 +1,3 @@
-"""ESE-AGP reproduction. Version 0.1 contains the local graph learning baseline."""
+"""ese_agp 包入口；0.1 版提供局部会话图基线，包名用下划线，安装名为 ese-agp。"""
 
 __version__ = "0.1.0"

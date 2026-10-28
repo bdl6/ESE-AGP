@@ -1,22 +1,43 @@
-# Synthetic debugging data only. These are not Amazon or thesis experiment results.
+# 人工小数据调试配置，仅验证代码链路，不能作为论文复现或真实效果证据。
+# 数据准备参数：路径相对 configs/ 的上一级，即项目根目录。
 data:
+  # 人工构造的原始 JSONL，不是 Amazon 真实点击日志。
   input: examples/tiny_interactions.jsonl
+  # prepare 输出的样本、目录和统计清单，后续命令共用这一份产物。
   output: data/processed/tiny.json
+  # 训练期用户事件下限；小数据调试用 1，主实验计划为 3。
   min_user_events: 1
+  # 训练期商品事件下限；小数据调试用 1，主实验计划为 5。
   min_item_events: 1
+  # 每个会话最多保留最近 20 次事件，包含最后目标，所以前缀最多 19 次。
   max_session_length: 20
+  # 按原始会话结束时间取训练分位边界，不是随机抽取 80% 样本。
   train_ratio: 0.8
+  # 验证区间目标比例；第二边界为 0.8+0.1，剩余时间用于测试。
   valid_ratio: 0.1
+# 第一阶段局部图模型；这些参数尚不包含全局图、实体特征或剪枝。
 model:
+  # 商品和节点向量维度，小数据先用 32，完整模型设计配置为 256。
   dim: 32
+  # 局部消息传递层数，一层读取一跳入邻居，两层可组合两跳范围信息。
   layers: 2
+  # 训练时的随机置零比例；人工数据为方便排错关闭，eval 时始终关闭。
   dropout: 0.0
+# 优化器、模型选择和运行产物参数。
 training:
+  # auto 根据实际 CUDA 可用性选设备；也可显式写 cpu 或 cuda。
   device: auto
+  # 固定初始化与打乱种子；CUDA 部分归约仍可能产生微小非确定性。
   seed: 42
+  # 每次参数更新使用的会话数，不是原始事件数或图节点数。
   batch_size: 16
+  # Adam 学习率；这里适配人工小数据，不直接代表正式数据最佳超参数。
   learning_rate: 0.01
+  # 最大训练轮数，验证集早停可能提前结束。
   epochs: 40
+  # 验证 MRR 连续 8 轮没有严格提高则停止，保留首次达到最好分数的模型。
   patience: 8
+  # HR/MRR 的排名截断；这里只有 3 个候选，HR@20 很高不能证明效果好。
   top_k: 20
+  # 日志和 best.pt 的输出目录；重复训练会覆盖，同口径对比请用不同目录。
   run_dir: runs/tiny

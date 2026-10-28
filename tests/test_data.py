@@ -1,3 +1,4 @@
+"""数据处理的手工样例：检验窗口、时间边界、训练内拟合和局部图结构。"""
 from pathlib import Path
 
 import pytest
@@ -6,10 +7,12 @@ from ese_agp.data import DAY_MS, Interaction, load_interactions_jsonl, prepare, 
 
 
 def _session(user, day, items):
+    """生成某用户第 day 天的有序事件；每次事件间隔 1 毫秒，方便手算。"""
     return [Interaction(user, item, day * DAY_MS + offset) for offset, item in enumerate(items)]
 
 
 def test_fixed_windows_are_anchored_not_inactivity_sessions():
+    """验证按首次事件锚定的 24h 窗口，而非相邻交互的空闲超时切分。"""
     interactions = [
         Interaction("u", "A", 0),
         Interaction("u", "B", DAY_MS - 1),
@@ -24,6 +27,7 @@ def test_fixed_windows_are_anchored_not_inactivity_sessions():
 
 
 def test_raw_boundaries_are_kept_before_truncation_and_crossing_is_removed():
+    """验证先按原始起止时间删跨界会话；不能先截断再把跨界样本误留到后续集合。"""
     interactions = [
         Interaction("a", "A", 0), Interaction("a", "B", 10),
         Interaction("b", "A", 0), Interaction("b", "B", 20),
@@ -42,6 +46,7 @@ def test_raw_boundaries_are_kept_before_truncation_and_crossing_is_removed():
 
 
 def test_train_filters_never_move_target_and_oov_positions_do_not_bridge():
+    """低频目标被过滤后应丢样本，不能换标签；前缀 OOV 保留位置，不能补出跨越边。"""
     interactions = _session("u0", 0, ["A", "rare-prefix", "B", "A"])
     interactions += _session("u1", 1, ["A", "B", "rare-target"])
     for day in range(2, 8):
@@ -63,6 +68,7 @@ def test_train_filters_never_move_target_and_oov_positions_do_not_bridge():
 
 
 def test_heldout_item_changes_cannot_change_training_catalog_or_popularity():
+    """只替换验证/测试商品，训练样本、商品映射和热门榜应完全不变。"""
     original = []
     for day in range(10):
         original += _session(f"u{day}", day, ["A", "B", "A"])
@@ -81,6 +87,7 @@ def test_heldout_item_changes_cannot_change_training_catalog_or_popularity():
 
 
 def test_user_filter_is_fitted_only_on_train_and_max_length_includes_target():
+    """检验训练内用户阈值、长度上限含目标，以及未知评估用户仍保留样本。"""
     rows = []
     for day in range(10):
         items = ["A", "B"] if day == 0 else ["A", "B", "C", "A"]
@@ -92,12 +99,13 @@ def test_user_filter_is_fitted_only_on_train_and_max_length_includes_target():
     assert result.train[0].target_item_id == result.catalog["A"]
     assert result.train[0].session_start == DAY_MS
     assert result.train[0].session_end == DAY_MS + 3
-    # Unseen heldout user IDs do not cause their evaluation sessions to vanish.
+    # 验证/测试中未见的用户仍然可以根据当前会话推荐，不能因训练期没有该用户而删样本。
     assert [s.user_id for s in result.valid] == ["u8"]
     assert [s.user_id for s in result.test] == ["u9"]
 
 
 def test_local_graph_is_disjoint_and_preserves_repeats_masks_and_self_edges():
+    """手算批内局部图，检查图间隔离、重复节点映射、真实自环、OOV 和补齐 mask。"""
     graph = prefix_to_local_graph([[1, 2, 1, 1], [1], [1, 0, 2], []])
     assert graph.node_item_ids == [0, 1, 2, 1, 1, 2]
     assert graph.edge_index == ([1, 1, 2], [1, 2, 1])
@@ -111,6 +119,7 @@ def test_local_graph_is_disjoint_and_preserves_repeats_masks_and_self_edges():
 
 
 def test_tiny_fixture_is_trainable_with_known_heldout_targets():
+    """检验人工样例产生 16/2/2 切分和 A/B/C 稳定编号，可供后续训练排错。"""
     fixture = Path(__file__).parents[1] / "examples" / "tiny_interactions.jsonl"
     result = prepare(load_interactions_jsonl(fixture))
     assert result.catalog == {"A": 1, "B": 2, "C": 3}
@@ -121,6 +130,7 @@ def test_tiny_fixture_is_trainable_with_known_heldout_targets():
 
 
 def test_invalid_inputs_have_actionable_errors(tmp_path):
+    """非法时间戳、切分比例、负编号或缺字段坏行，应报告可定位的异常。"""
     with pytest.raises(ValueError, match="timestamp"):
         Interaction("u", "A", True)
     with pytest.raises(ValueError, match="ratios"):

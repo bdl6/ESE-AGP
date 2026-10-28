@@ -1,0 +1,31 @@
+# 第三章论文协议：全局过滤后随机会话 9:1；固定 20 轮，不使用测试集选模型。
+data:
+  format: amazon2023
+  protocol: paper
+  split_seed: 42
+  reviews: data/raw/amazon2023/CDs_and_Vinyl.jsonl.gz
+  metadata: data/raw/amazon2023/meta_CDs_and_Vinyl.jsonl.gz
+  output: data/processed/amazon_cds_paper_v1
+  min_user_events: 3
+  min_item_events: 5
+  max_session_length: 20
+  train_ratio: 0.9
+  valid_ratio: 0.0  # 论文仅划分训练/测试，valid.parquet 为空
+  user_sample_modulus: 1  # 1=全部用户；大于1仅用于完整用户历史抽样排错
+  threads: 4
+model:
+  dim: 256
+  layers: 2
+  dropout: 0.2
+  use_item_features: false
+  candidate_chunk_size: 2048
+training:
+  device: auto  # 启动时通过 CUDA_VISIBLE_DEVICES 显式选空闲 GPU
+  seed: 42
+  selection: last_epoch  # 固定轮数保存最后一轮，测试集仅供显式最终评估
+  batch_size: 100
+  learning_rate: 0.001
+  epochs: 20
+  patience: 3
+  top_k: 20
+  run_dir: runs/amazon_cds_paper_local_id

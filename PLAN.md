@@ -1,6 +1,6 @@
 # ESE-AGP：一周项目实现与推荐算法实习面试计划
 
-更新日期：2026-10-27。状态：项目 venv 与第一阶段局部图基线已完成；30 项测试通过，人工小数据的准备、基线、训练与加载评估已跑通。当前使用 PyTorch 2.9.0 CPU 版，GPU 验收、真实数据准备与正式实验尚未完成。第一阶段阅读 `README.md`、`docs/DAY1.md` 与 `docs/STAGE1_VERIFICATION.md`；完整模块接口与实现顺序见 `CODE_DESIGN.md`。
+更新日期：2026-10-28。当前主项目迁至服务器 `/data1/rag/zhy/ESE-AGP`。Day02 真实数据适配、商品属性与 CUDA 链路已实现，43 项测试通过；完整类目下载、预处理、两组各20轮训练和独立验证均已完成。学习说明见 `docs/DAY2.md`，结果完成后写入 `docs/DAY2_REPORT.md`。全局图、实体语义、剪枝、多视角和服务仍待实现。
 
 ## 1. 目标、范围与当前条件
 
@@ -10,18 +10,17 @@
 - 一周范围：一个真实数据集，完整包含实体语义增强、可学习剪枝、局部与全局图、多视角预测、离线评估、核心消融及推理演示。
 - 全量定义：主实验使用所选类目按固定规则预处理后保留下来的全部合规会话；小样本只用于排错，不得代替全量结果。实体只为训练商品目录抽取，不为原始类目中的所有商品都调用模型。
 - 本周不做完整商城、支付、复杂微服务、线上 A/B 或三数据集完整对比；不承诺复现论文原表数值或一定超过基线。
-- 已确认：项目目录 `E:\ese-agp`；远程仓库 `git@github.com:bdl6/ESE-AGP.git`。本地已写入第一阶段代码及文档。
-- 本机：Windows、Python 3.12.4、RTX 4060 Laptop 8GB，E 盘约 123GB 可用。现有 PyTorch 2.9.0 为 CPU 版，不能直接用于 GPU 训练。
+- 已确认：主项目 `61.162.193.19_rag:/data1/rag/zhy/ESE-AGP`，通过 SSH 直接修改；远程仓库 `git@github.com:bdl6/ESE-AGP.git`。本地 E 盘副本保留为早期记录。
+- 当前服务器：Python 3.12.13、PyTorch 2.9.0+cu126、共享 RTX 4090 D；CUDA 属性模型前反向已通过。任务只使用所选空闲 GPU，并记录实际编号/显存/耗时。
 - 待补：现有实体抽取服务的供应商、Base URL、模型名及费用/配额上限。未确认前不调用服务；环境、数据和无语义模型可独立推进。密钥仅放本机环境变量。
 
 ## 2. 技术方案与复现边界
 
 ### 2.1 环境与项目组织
 
-- 使用标准库 `venv`，环境固定在 `E:\ese-agp\.venv`。已用 `E:\python\python.exe -m venv E:\ese-agp\.venv` 创建并验证：Python 3.12.4、pip 可用，与全局环境隔离。
-- 目标依赖为 PyTorch 2.9.0 CUDA 12.6 构建；安装后验证 `torch.cuda.is_available()` 和一次前向/反向计算，再锁定实际依赖版本。
-- 2026-10-27 实际进度：CUDA 大包下载持续停在 24MB，已停止该下载并在同一 venv 安装官方 `torch==2.9.0+cpu`，CPU 前反向通过。当前 `requirements.lock` 为 CPU 环境快照；更换 CUDA wheel 后必须重新验收并更新锁文件，不能将 CPU 测试描述成 GPU 验收通过。
-- 项目根目录 PowerShell 可运行 `.\.venv\Scripts\Activate.ps1` 激活。自动化命令直接调用 `.\.venv\Scripts\python.exe`，安装依赖用该 Python 的 `-m pip`，避免误用全局 pip；无需修改系统执行策略。
+- 使用服务器项目 `.venv`，直接调用 `.venv/bin/python`，不使用系统 site-packages。
+- 当前 CUDA 12.6 环境已通过矩阵和 256 维属性 GNN 前反向；后续训练记录实际设备与峰值显存。
+- 保留服务器原有 uv 的 cpu/cu126 互斥源配置；新增 DuckDB 1.4.1、PyArrow 22.0.0，并更新 uv.lock。使用 uv 重建时显式选择 `--extra cu126 --extra dev`。
 - 核心依赖：NumPy、pandas、SciPy、PyArrow、DuckDB、PyYAML、HTTPX、FastAPI、Uvicorn、pytest。图模型直接使用 PyTorch 稀疏张量，便于解释消息传递和梯度，首版不引入额外图框架。
 - 数据下载流式写入，使用 Parquet 与 DuckDB 完成外部排序和统计，避免把原始评论和全部商品文本同时装入内存。
 - 数据、模型权重、抽取缓存、环境变量和运行日志加入忽略规则；Git 只提交代码、配置、小型测试数据及汇总报告。引用原论文与所用公开代码，标明个人实现和修订之处。
@@ -148,7 +147,9 @@
 - [x] 完成小数据会话处理、热门/转移基线、局部 GNN、全候选训练与加载评估；30 项测试通过。
 - [x] 编写第一阶段学习与面试讲义、运行命令和验收记录。
 - [ ] 补充现有模型服务的供应商、Base URL、模型名、预算/配额。
-- [ ] 完成 GPU 环境验收、真实数据预处理与首轮吞吐/显存/成本测量。
+- [x] 完成服务器 CUDA 环境及属性 GNN 前反向验收。
+- [x] 实现真实 Amazon/元数据适配、Parquet、属性融合与 43 项测试。
+- [x] 完成本轮全量下载、预处理、验证基线/对照训练及实际资源报告。
 - [ ] 完成全量训练、核心消融与推理演示。
 - [ ] 用真实结果完善面试讲稿并完成模拟。
 
@@ -160,4 +161,4 @@
 - PyTorch 官方历史构建：https://pytorch.org/get-started/previous-versions/
 - GraphRAG 官方方法说明：https://microsoft.github.io/graphrag/index/methods/
 
-计划元数据：Origin Skill=`academic-research-suite/experiment-agent`；Mode=`plan`；Date=`2026-10-26`；Verification Status=`UNVERIFIED`（尚未执行模型实验）；Version=`v1`。
+计划元数据：Origin Skill=`academic-research-suite/experiment-agent`；Mode=`plan`；Date=`2026-10-26`；Verification Status=`HISTORICAL_PLAN`（阶段实际验收见 docs 下记录）；Version=`v1`。
