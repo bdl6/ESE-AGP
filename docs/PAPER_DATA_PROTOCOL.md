@@ -1,5 +1,8 @@
 # 第三章论文数据协议
 
+> 目录已按职责重组：模型在 `src/ese_agp/models/`，训练评估在 `src/ese_agp/training/`，数据在 `src/ese_agp/data/`。旧文件名对照与阅读顺序见 [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md)。历史报告中的源码名称对应当时版本。
+
+
 依据论文 3.3.2（正文 29—31 页）：先全局过滤，再按会话随机 9:1 划分。
 这是对论文明确规则的实现，并不保证复原作者未公开的随机划分和全部数据细节。
 

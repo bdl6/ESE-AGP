@@ -1,4 +1,10 @@
 > 当前 `configs/amazon_cds.yaml` / `amazon_cds_id_only.yaml` 已切换为第三章论文的全局过滤、随机会话 9:1 协议。
+
+> 目录已按职责重组：模型在 `src/ese_agp/models/`，训练评估在 `src/ese_agp/training/`，数据在 `src/ese_agp/data/`。旧文件名对照与阅读顺序见 [docs/PROJECT_STRUCTURE.md](docs/PROJECT_STRUCTURE.md)。历史报告中的源码名称对应当时版本。
+
+
+> 2026-10-29 Day03 更新：训练行为图、可选稀疏全局 GNN、属性初始化对照和实体试抽取离线接口已实现。61项测试通过。主配置现为论文随机9:1协议，历史时间协议结果不可混比。正式实验进度见 `runs/day03_jobs_status.json`；讲解见 `docs/DAY3.md`。实体服务尚未配置，未执行抽取、人工审核或付费调用。下文早期设计/结果保留为历史记录。
+
 > 旧时间协议使用 `configs/amazon_cds_temporal.yaml` / `amazon_cds_id_only_temporal.yaml`；历史数据和结果保留。
 > 新协议没有独立验证集，固定轮数保存最后一轮；详细步骤与实现选择见 [论文数据协议](docs/PAPER_DATA_PROTOCOL.md)。
 
@@ -61,3 +67,44 @@ CUDA_VISIBLE_DEVICES=7 .venv/bin/python -m ese_agp evaluate --config configs/ama
 代码、配置和测试均有中文说明。完整目标及与论文的差异见 `PLAN.md`、`CODE_DESIGN.md`；软剪枝等后续设计不能当作已经实现的成果。
 
 数据来源：[Amazon Reviews 2023](https://amazon-reviews-2023.github.io/)；[原始字段说明](https://amazon-reviews-2023.github.io/data_loading/jsonl.html)。本项目的时间协议与论文随机切分不同，不直接拿论文原表数字排名。
+
+## 当前源码结构
+
+```text
+src/ese_agp/
+├── cli.py / __main__.py          # 统一命令入口
+├── models/                      # 所有推荐模型和可训练图层
+│   ├── recommender.py           # LocalSessionRecommender：组合各模块
+│   ├── local_graph.py           # 局部图注意力层
+│   ├── global_graph.py          # 全局稀疏图层与编码器
+│   ├── embeddings.py            # 商品属性 embedding 与投影
+│   └── baselines.py             # 热门、相邻转移基线
+├── training/                    # 训练与评估
+│   ├── trainer.py               # 训练循环、保存实验记录
+│   ├── evaluator.py             # 神经模型批量评估
+│   ├── metrics.py               # HR/MRR 计算
+│   └── checkpoint.py            # 模型构造、校验与加载
+├── data/                        # 数据处理
+│   ├── sessions.py              # 数据结构、会话划分、局部构图
+│   ├── batching.py              # SessionBatch、collate_examples
+│   ├── amazon.py                # Amazon 真实数据预处理
+│   ├── artifacts.py             # Parquet 产物与目录校验
+│   ├── features.py              # 类别/价格统计与分档
+│   ├── io.py                    # 预处理数据加载与指纹
+│   └── download.py              # 官方数据下载
+├── graphs/
+│   └── behavior.py              # 行为全局图构建、保存与校验
+├── entities/
+│   └── extraction.py            # 实体抽取准备与结果校验
+└── utils/
+    ├── config.py                # YAML 配置、路径解析
+    ├── device.py                # 运行设备选择
+    ├── io.py                    # JSON 写入
+    └── validation.py            # 输入编号校验
+
+scripts/training/run_day03.py     # 四组对照实验执行脚本
+tests/{data,models,graphs,entities,training}/
+configs/                         # 现有配置路径不变
+docs/                            # 学习讲义与实验报告
+data/ / runs/                    # 数据、权重、日志产物
+```

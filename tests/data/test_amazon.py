@@ -9,12 +9,16 @@ import pytest
 import torch
 from torch.nn import functional as F
 
-from ese_agp.amazon import prepare_amazon, _safe_details
-from ese_agp.artifacts import PreparedArtifact
-from ese_agp.data import Interaction, prepare, prefix_to_local_graph
-from ese_agp.features import parse_price, fit_item_features, relative_price_bin, ItemAttributeEncoder
-from ese_agp.model import LocalSessionRecommender, collate_examples
-from ese_agp.training import train, load_model, evaluate_model
+from ese_agp.data.amazon import prepare_amazon, _safe_details
+from ese_agp.data.artifacts import PreparedArtifact
+from ese_agp.data.sessions import Interaction, prepare, prefix_to_local_graph
+from ese_agp.data.features import parse_price, fit_item_features, relative_price_bin
+from ese_agp.models.embeddings import ItemAttributeEncoder
+from ese_agp.models.recommender import LocalSessionRecommender
+from ese_agp.data.batching import collate_examples
+from ese_agp.training.trainer import train
+from ese_agp.training.checkpoint import load_model
+from ese_agp.training.evaluator import evaluate_model
 
 
 def write_gzip(path, rows):

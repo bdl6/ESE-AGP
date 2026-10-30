@@ -1,5 +1,11 @@
 # ESE-AGP 代码设计与实施顺序
 
+> 目录已按职责重组：模型在 `src/ese_agp/models/`，训练评估在 `src/ese_agp/training/`，数据在 `src/ese_agp/data/`。旧文件名对照与阅读顺序见 [docs/PROJECT_STRUCTURE.md](docs/PROJECT_STRUCTURE.md)。历史报告中的源码名称对应当时版本。
+
+
+> 2026-10-29 Day03 更新：训练行为图、可选稀疏全局 GNN、属性初始化对照和实体试抽取离线接口已实现。61项测试通过。主配置现为论文随机9:1协议，历史时间协议结果不可混比。正式实验进度见 `runs/day03_jobs_status.json`；讲解见 `docs/DAY3.md`。实体服务尚未配置，未执行抽取、人工审核或付费调用。下文早期设计/结果保留为历史记录。
+
+
 日期：2026-10-28。Day02 已在服务器实现真实数据预处理与可选 ID/类别/相对价格融合，43 项测试及 CUDA 前反向通过。全量预处理、两组各20轮训练及独立验证已完成，结果见 `docs/DAY2_REPORT.md`。本文仍包含完整模型的后续设计，不能将全局图/剪枝/多视角当作已实现。
 
 当前继续使用平铺模块便于学习：新增 `download.py / amazon.py / artifacts.py / features.py`，`model.py` 通过 `use_item_features` 切换 ID-only/属性局部图。正式配置为 256 维，tiny 为 32 维。完整全局图与剪枝仍待实现；checkpoint 当前支持推理加载，尚无中断续训命令。
@@ -9,23 +15,42 @@
 使用一个 Python 包和统一命令入口，先完成可训练链路，再通过配置逐项增加模块。环境统一使用项目 `.venv`，不使用全局 site-packages。服务器运行与测试由 `.venv/bin/python` 发起，依赖通过 `python -m pip` 安装；`.venv` 加入 Git 忽略规则。
 
 ```text
-ese-agp/
-├── PLAN.md / CODE_DESIGN.md / README.md
-├── pyproject.toml / uv.lock / .gitignore
-├── configs/                     # 主配置、小样本配置、三组消融配置
-├── src/ese_agp/
-│   ├── __main__.py / cli.py      # prepare/extract/build-graphs/train/evaluate/export/serve
-│   ├── config.py / types.py      # 配置、数据结构、输入验证
-│   ├── data/                    # 原始读取、会话切分、映射、Dataset、collate
-│   ├── entities/                # 提示词、模型适配器、JSON校验、清洗、缓存
-│   ├── graphs/                  # 行为图、语义图、融合图、批内局部图
-│   ├── models/                  # embedding、图层、剪枝、多视角、完整模型
-│   ├── training/                # 基线、Trainer、指标、checkpoint
-│   └── serving/                 # 模型加载、共享预处理、FastAPI、静态演示页
-├── tests/                       # 手工小图、梯度、指标、缓存与接口一致性
-├── docs/                        # 设计决策、实验说明、面试问答
-├── data/                        # raw/interim/processed；不提交原始数据
-└── runs/                        # 配置快照、日志、checkpoint、导出产物；大文件不提交
+src/ese_agp/
+├── cli.py / __main__.py          # 统一命令入口
+├── models/                      # 所有推荐模型和可训练图层
+│   ├── recommender.py           # LocalSessionRecommender：组合各模块
+│   ├── local_graph.py           # 局部图注意力层
+│   ├── global_graph.py          # 全局稀疏图层与编码器
+│   ├── embeddings.py            # 商品属性 embedding 与投影
+│   └── baselines.py             # 热门、相邻转移基线
+├── training/                    # 训练与评估
+│   ├── trainer.py               # 训练循环、保存实验记录
+│   ├── evaluator.py             # 神经模型批量评估
+│   ├── metrics.py               # HR/MRR 计算
+│   └── checkpoint.py            # 模型构造、校验与加载
+├── data/                        # 数据处理
+│   ├── sessions.py              # 数据结构、会话划分、局部构图
+│   ├── batching.py              # SessionBatch、collate_examples
+│   ├── amazon.py                # Amazon 真实数据预处理
+│   ├── artifacts.py             # Parquet 产物与目录校验
+│   ├── features.py              # 类别/价格统计与分档
+│   ├── io.py                    # 预处理数据加载与指纹
+│   └── download.py              # 官方数据下载
+├── graphs/
+│   └── behavior.py              # 行为全局图构建、保存与校验
+├── entities/
+│   └── extraction.py            # 实体抽取准备与结果校验
+└── utils/
+    ├── config.py                # YAML 配置、路径解析
+    ├── device.py                # 运行设备选择
+    ├── io.py                    # JSON 写入
+    └── validation.py            # 输入编号校验
+
+scripts/training/run_day03.py     # 四组对照实验执行脚本
+tests/{data,models,graphs,entities,training}/
+configs/                         # 现有配置路径不变
+docs/                            # 学习讲义与实验报告
+data/ / runs/                    # 数据、权重、日志产物
 ```
 
 模块只做本层工作：数据处理不调用模型；构图不读取测试目标；模型不读取原始文件；Trainer 不自行改切分；服务不重新训练。CLI 负责组合这些模块。

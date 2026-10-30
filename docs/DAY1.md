@@ -1,5 +1,8 @@
 # 第一阶段：跑通并讲清局部会话图
 
+> 目录已按职责重组：模型在 `src/ese_agp/models/`，训练评估在 `src/ese_agp/training/`，数据在 `src/ese_agp/data/`。旧文件名对照与阅读顺序见 [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md)。历史报告中的源码名称对应当时版本。
+
+
 本阶段实现的是 ESE-AGP 的局部图基线，不包含完整论文模型。先读数据和测试，再读神经网络；不用一次背完所有 PyTorch API。
 
 ## 1. 先看一个样本

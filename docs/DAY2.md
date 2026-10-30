@@ -1,5 +1,8 @@
 # Day02：真实数据与商品属性
 
+> 目录已按职责重组：模型在 `src/ese_agp/models/`，训练评估在 `src/ese_agp/training/`，数据在 `src/ese_agp/data/`。旧文件名对照与阅读顺序见 [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md)。历史报告中的源码名称对应当时版本。
+
+
 当前主项目位于服务器 `61.162.193.19_rag:/data1/rag/zhy/ESE-AGP`，后续实现与测试直接在服务器完成。
 本阶段只实现局部图基线与商品 ID/类别/相对价格融合；全局行为图、实体语义图、剪枝和多视角仍属于后续阶段。
 

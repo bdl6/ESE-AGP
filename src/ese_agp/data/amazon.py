@@ -7,8 +7,8 @@ import time
 
 import duckdb
 
-from .artifacts import sha256_file, save_json
-from .features import parse_price, fit_item_features
+from ese_agp.data.artifacts import sha256_file, save_json
+from ese_agp.data.features import parse_price, fit_item_features
 
 
 def _literal(value):

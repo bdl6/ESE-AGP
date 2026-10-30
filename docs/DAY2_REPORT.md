@@ -1,5 +1,8 @@
 # Day02 实现与运行记录
 
+> 目录已按职责重组：模型在 `src/ese_agp/models/`，训练评估在 `src/ese_agp/training/`，数据在 `src/ese_agp/data/`。旧文件名对照与阅读顺序见 [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md)。历史报告中的源码名称对应当时版本。
+
+
 日期：2026-10-28。主项目：`61.162.193.19_rag:/data1/rag/zhy/ESE-AGP`。
 状态：全量预处理、两组各20轮训练与独立加载验证全部完成；独立验证指标与最佳模型报告一致，真实测试集尚未用于模型评估。
 

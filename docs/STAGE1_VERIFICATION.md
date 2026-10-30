@@ -1,5 +1,8 @@
 # 第一阶段验收记录
 
+> 目录已按职责重组：模型在 `src/ese_agp/models/`，训练评估在 `src/ese_agp/training/`，数据在 `src/ese_agp/data/`。旧文件名对照与阅读顺序见 [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md)。历史报告中的源码名称对应当时版本。
+
+
 日期：2026-10-27。项目：`E:\ese-agp`。本记录属于人工数据排错验证，不是论文复现效果或正式实验结论。
 
 ## 已验证

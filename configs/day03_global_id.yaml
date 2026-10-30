@@ -1,0 +1,35 @@
+data:
+  format: amazon2023
+  protocol: paper
+  split_seed: 42
+  reviews: data/raw/amazon2023/CDs_and_Vinyl.jsonl.gz
+  metadata: data/raw/amazon2023/meta_CDs_and_Vinyl.jsonl.gz
+  output: data/processed/amazon_cds_paper_v1
+  min_user_events: 3
+  min_item_events: 5
+  max_session_length: 20
+  train_ratio: 0.9
+  valid_ratio: 0.0
+  user_sample_modulus: 1
+  threads: 4
+model:
+  dim: 256
+  layers: 2
+  dropout: 0.2
+  use_item_features: false
+  candidate_chunk_size: 2048
+  use_global: true
+  global_layers: 2
+training:
+  device: auto
+  seed: 42
+  selection: last_epoch
+  batch_size: 100
+  learning_rate: 0.001
+  epochs: 20
+  patience: 3
+  top_k: 20
+  run_dir: runs/day03_global_id
+  cuda_memory_fraction: 0.1
+graph:
+  path: data/graphs/paper_behavior_v1.json

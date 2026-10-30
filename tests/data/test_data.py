@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from ese_agp.data import DAY_MS, Interaction, load_interactions_jsonl, prepare, prefix_to_local_graph
+from ese_agp.data.sessions import DAY_MS, Interaction, load_interactions_jsonl, prepare, prefix_to_local_graph
 
 
 def _session(user, day, items):
@@ -120,7 +120,7 @@ def test_local_graph_is_disjoint_and_preserves_repeats_masks_and_self_edges():
 
 def test_tiny_fixture_is_trainable_with_known_heldout_targets():
     """检验人工样例产生 16/2/2 切分和 A/B/C 稳定编号，可供后续训练排错。"""
-    fixture = Path(__file__).parents[1] / "examples" / "tiny_interactions.jsonl"
+    fixture = Path(__file__).parents[2] / "examples" / "tiny_interactions.jsonl"
     result = prepare(load_interactions_jsonl(fixture))
     assert result.catalog == {"A": 1, "B": 2, "C": 3}
     assert [len(result.train), len(result.valid), len(result.test)] == [16, 2, 2]

@@ -6,7 +6,7 @@ import zlib
 
 import pytest
 
-from ese_agp import download
+from ese_agp.data import download
 
 
 class Response(io.BytesIO):

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pyarrow.parquet as pq
 
-from .data import SessionExample
+from ese_agp.data.sessions import SessionExample
 
 
 def sha256_file(path):

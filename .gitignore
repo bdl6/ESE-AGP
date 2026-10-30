@@ -24,6 +24,7 @@ data/raw/
 data/interim/
 data/processed/
 data/entities/
+data/graphs
 runs/
 artifacts/
 .cache/

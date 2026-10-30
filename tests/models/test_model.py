@@ -6,9 +6,14 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
-from ese_agp.data import PreparedData, SessionExample
-from ese_agp.model import IncomingAttentionLayer, LocalSessionRecommender, collate_examples
-from ese_agp.training import data_fingerprint, evaluate_model, load_model, load_prepared, prepared_payload, write_json
+from ese_agp.data.sessions import PreparedData, SessionExample
+from ese_agp.models.local_graph import IncomingAttentionLayer, LocalGraphEncoder
+from ese_agp.models.recommender import LocalSessionRecommender
+from ese_agp.data.batching import collate_examples
+from ese_agp.data.io import data_fingerprint, load_prepared, prepared_payload
+from ese_agp.training.evaluator import evaluate_model
+from ese_agp.training.checkpoint import load_model
+from ese_agp.utils.io import write_json
 
 
 def example(prefix, target=1):
@@ -35,7 +40,7 @@ def test_readout_counts_repeated_positions_and_masks_oov():
     """绕过图层、用简单非负向量手算池化，检验重复点击计数以及 OOV/补齐不计数。"""
     model = LocalSessionRecommender(2, dim=2, layers=1)
     # 移除图层并将视角设为恒等映射，只检验位置读出；非负 embedding 使 ReLU 不改数值。
-    model.layers = nn.ModuleList()
+    model.layers = LocalGraphEncoder(2, layers=0, dropout=0.0)
     model.view = nn.Identity()
     with torch.no_grad():
         model.embedding.weight.copy_(torch.tensor([[0., 0.], [1., 0.], [0., 1.]]))

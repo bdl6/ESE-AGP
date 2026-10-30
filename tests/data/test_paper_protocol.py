@@ -5,10 +5,11 @@ import json
 import pytest
 import torch
 
-from ese_agp.amazon import prepare_amazon
-from ese_agp.artifacts import PreparedArtifact
-from ese_agp.model import collate_examples
-from ese_agp.training import train, load_model
+from ese_agp.data.amazon import prepare_amazon
+from ese_agp.data.artifacts import PreparedArtifact
+from ese_agp.data.batching import collate_examples
+from ese_agp.training.trainer import train
+from ese_agp.training.checkpoint import load_model
 
 
 def make_files(tmp_path):

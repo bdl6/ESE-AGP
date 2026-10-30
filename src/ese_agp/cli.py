@@ -10,7 +10,7 @@ import platform
 import sys
 from pathlib import Path
 
-from .config import load_config
+from ese_agp.utils.config import load_config
 
 
 def main():
@@ -23,7 +23,7 @@ def main():
     # 子命令存入 args.command，每个命令单独声明自己需要的参数。
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("doctor", help="Check the active Python and a CUDA/CPU forward-backward pass")
-    for name in ("download", "prepare", "baseline", "train", "evaluate"):
+    for name in ("download", "prepare", "build-graphs", "prepare-entities", "baseline", "train", "evaluate"):
         command = sub.add_parser(name)
         command.add_argument("--config", default="configs/amazon_cds.yaml" if name == "download" else "configs/tiny.yaml")
         # 默认只看验证集，避免日常调参反复查看测试结果。
@@ -48,20 +48,26 @@ def main():
         }
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return
-    from .data import load_interactions_jsonl, prepare
-    from .evaluation import PopularityBaseline, TransitionBaseline, evaluate_rankings
-    from .training import choose_device, evaluate_model, load_model, load_prepared, prepared_payload, train, write_json
+    from ese_agp.data.sessions import load_interactions_jsonl, prepare
+    from ese_agp.models.baselines import PopularityBaseline, TransitionBaseline
+    from ese_agp.training.metrics import evaluate_rankings
+    from ese_agp.utils.device import choose_device
+    from ese_agp.training.evaluator import evaluate_model
+    from ese_agp.training.checkpoint import load_model
+    from ese_agp.data.io import load_prepared, prepared_payload
+    from ese_agp.training.trainer import train
+    from ese_agp.utils.io import write_json
     # 统一入口解析路径；后续模块只接收处理好的配置和数据对象。
     config = load_config(args.config)
     cfg = config["data"]
     output = Path(cfg["output"])
     if args.command == "download":
-        from .download import download_file, URLS
+        from ese_agp.data.download import download_file, URLS
         for key, filename in (("reviews", "CDs_and_Vinyl.jsonl.gz"), ("metadata", "meta_CDs_and_Vinyl.jsonl.gz")):
             download_file(URLS[filename], cfg[key])
         return
     if args.command == "prepare" and cfg.get("format") == "amazon2023":
-        from .amazon import prepare_amazon
+        from ese_agp.data.amazon import prepare_amazon
         options = {key: value for key, value in cfg.items() if key not in {"format", "reviews", "metadata", "output"}}
         manifest = prepare_amazon(cfg["reviews"], cfg["metadata"], cfg["output"], **options)
         print(json.dumps(manifest, ensure_ascii=False, indent=2))
@@ -83,6 +89,19 @@ def main():
     if args.command in {"baseline", "evaluate"} and not getattr(data, args.split):
         # 论文 9:1 没有 valid，拒绝输出空集合的误导性指标；测试需用户显式指定。
         raise ValueError("Selected split is empty. Paper 9:1 has no valid split; use --split test only for final evaluation.")
+    if args.command == "prepare-entities":
+        from ese_agp.entities.extraction import prepare_entity_pilot
+        results = prepare_entity_pilot(data, output.parent.parent / 'entities' / ('pilot_' + data.fingerprint[:12]))
+        print(json.dumps(results, ensure_ascii=False, indent=2))
+        return
+    if args.command == "build-graphs":
+        from ese_agp.graphs.behavior import build_behavior_graph, save_graph, load_graph
+        path = Path(config['graph']['path'])
+        # 已有图须校验一致，不能悄悄覆盖另一次实验。
+        graph = load_graph(path, data) if path.exists() else build_behavior_graph(data)
+        if not path.exists(): save_graph(graph, path)
+        print(json.dumps({k: v for k, v in graph.items() if k not in {'edge_index', 'edge_weight', 'counts'}}, indent=2))
+        return
     if args.command == "baseline":
         results = {}
         k = config["training"]["top_k"]

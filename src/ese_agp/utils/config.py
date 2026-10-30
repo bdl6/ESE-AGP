@@ -14,7 +14,7 @@ def load_config(path: str | Path) -> dict:
     with config_path.open(encoding="utf-8") as stream:
         # safe_load 只加载 YAML 数据，不构造任意 Python 对象。
         config = yaml.safe_load(stream)
-    if not isinstance(config, dict) or set(config) != {"data", "model", "training"}:
+    if not isinstance(config, dict) or not {"data", "model", "training"} <= set(config) or set(config) - {"data", "model", "training", "graph"}:
         raise ValueError("Config must contain exactly data, model and training")
     # 以 configs/ 的上一级为路径基准，减少切换命令工作目录造成的路径错误。
     root = config_path.parent.parent
@@ -23,6 +23,9 @@ def load_config(path: str | Path) -> dict:
             continue
         value = Path(config["data"][key])
         config["data"][key] = str(value if value.is_absolute() else root / value)
+    if 'graph' in config:
+        value = Path(config['graph']['path'])
+        config['graph']['path'] = str(value if value.is_absolute() else root / value)
     value = Path(config["training"]["run_dir"])
     config["training"]["run_dir"] = str(value if value.is_absolute() else root / value)
     return config

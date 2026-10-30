@@ -5,11 +5,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from ese_agp.evaluation import (
-    PopularityBaseline,
-    TransitionBaseline,
-    evaluate_rankings,
-)
+from ese_agp.models.baselines import PopularityBaseline, TransitionBaseline
+from ese_agp.training.metrics import evaluate_rankings
 
 
 def example(prefix, target):
