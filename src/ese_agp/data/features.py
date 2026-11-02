@@ -26,7 +26,7 @@ def relative_price_bin(price, stats, num_bins=50):
     """按论文式 3-28..31 将类内价格映射为 1..P；0 留给 padding。
 
     gamma=std*sqrt(3)/pi；先 sigmoid，再按类内最小/最大变换值归一。
-    零方差或数值退化类目放中间档；统计只来自训练商品，不按事件次数加权。
+    零方差或数值退化类目放中间档；统计来自当前产物的统一商品目录，不按事件次数加权。
     """
     if num_bins < 1:
         raise ValueError('num_bins must be positive')
@@ -43,7 +43,7 @@ def relative_price_bin(price, stats, num_bins=50):
 
 
 def fit_item_features(products, num_bins=50):
-    """输入训练目录商品 (item_id, category, price)，输出与 0..N 严格对齐的属性。
+    """输入商品词表商品 (item_id, category, price)，输出与 0..N 严格对齐的属性。
 
     category/price 必须已清洗；唯一商品只贡献一次价格统计，避免热门商品主导均价。
     返回 JSON 可保存的列表/字典，供模型注册为固定索引 buffer，而非可学习参数。

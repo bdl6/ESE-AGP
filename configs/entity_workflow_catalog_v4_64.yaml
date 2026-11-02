@@ -1,0 +1,68 @@
+# 全目录静态元数据；64并发；复用已核验的万商品成功请求；构建语义图和融合图。
+data:
+  format: amazon2023
+  protocol: paper
+  split_seed: 42
+  reviews: data/raw/amazon2023/CDs_and_Vinyl.jsonl.gz
+  metadata: data/raw/amazon2023/meta_CDs_and_Vinyl.jsonl.gz
+  output: data/processed/amazon_cds_paper_drop_session_v4
+  min_user_events: 3
+  min_item_events: 5
+  max_session_length: 20
+  train_ratio: 0.9
+  valid_ratio: 0.0
+  user_sample_modulus: 1
+  threads: 4
+model:
+  dim: 256
+  layers: 2
+  dropout: 0.2
+  use_item_features: true
+  candidate_chunk_size: 2048
+  use_global: true
+  global_layers: 2
+training:
+  device: auto
+  seed: 42
+  selection: last_epoch
+  batch_size: 100
+  learning_rate: 0.001
+  epochs: 20
+  patience: 3
+  top_k: 20
+  run_dir: runs/paper_drop_session_v4_global_attrs
+  cuda_memory_fraction: 0.1
+graph:
+  behavior_path: data/graphs/paper_drop_session_v4/behavior.json
+  semantic_path: data/graphs/paper_drop_session_v4/semantic.json
+  path: data/graphs/paper_drop_session_v4/fused.json
+  top_k: 20
+  beta: 0.5
+  max_candidate_pairs: 500000000
+entities:
+  alias_threshold: 0.9
+  api_key_env: ESE_ENTITY_API_KEY
+  base_url: http://127.0.0.1:18888/v1
+  chunk_size: 1600
+  continue_on_error: true
+  limit: 12492
+  max_alias_pairs: 3000000
+  max_output_tokens: 4096
+  max_requests: 2000000
+  max_rounds: 3
+  max_split_depth: 3
+  min_chunk_chars: 200
+  model: Qwen3-30B-A3B-Instruct-2507
+  output: data/entities/catalog_v4_64_20261102
+  overlap: 200
+  request_attempts: 3
+  timeout_seconds: 360
+  concurrency: 64
+  candidate_top_k: 8
+  candidate_min_similarity: 0.65
+  concise_outputs: true
+  build_graphs: true
+  item_scope: catalog
+  cache_sources:
+  - folder: /data1/rag/zhy/ESE-AGP/runs/entity_scale_10000_20261101/production/entities
+    identity: abc0c81841623e93c2f0cc9394b88c8786d9db000af0df9b80fa5dc4d1a7dc08

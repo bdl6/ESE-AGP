@@ -72,12 +72,12 @@ def test_paper_global_catalog_is_distinct_from_training_seen_items(tmp_path):
     assert data.manifest['stats']['oov_targets'] == {'train': 0, 'valid': 0, 'test': 0}
     assert data.manifest['stats']['targets_unseen_in_train']['test'] == 1
     assert data.manifest['stats']['catalog_items_unseen_in_train'] == 1
-    # 价格均值包含全局目录中的 Z，和 temporal 的训练目录拟合语义不同。
+    # 价格均值包含全局目录中的 Z，包含训练与测试保留商品目录。
     assert data.item_features['price_stats']['Rock']['mean'] == 40
 
 
 def test_paper_deletes_invalid_and_low_frequency_events_then_truncates(tmp_path):
-    """论文先删无效/低频商品，再截断和留一，不沿用时间协议的 OOV 占位。"""
+    """论文先删无效/低频商品，再保留最近20条历史和独立目标，不按训练未见删除交互。"""
     reviews, metadata, rows, meta = make_files(tmp_path)
     rows = [row for row in rows if row['user_id'] != 'u00']
     sequence = ['A'] * 23 + ['INVALID', 'RARE', 'B', 'C']
@@ -88,11 +88,8 @@ def test_paper_deletes_invalid_and_low_frequency_events_then_truncates(tmp_path)
     write_rows(reviews, rows)
     write_rows(metadata, meta)
     data = build(reviews, metadata, tmp_path / 'result')
-    ex = next(x for split in (data.train, data.test) for x in split if x.user_id == 'u00')
-    assert len(ex.input_item_ids) == 19
-    assert ex.input_item_ids[-1] == data.catalog['B']
-    assert ex.target_item_id == data.catalog['C']
-    assert 0 not in ex.input_item_ids
+    # RARE只出现一次，整段u00会话必须丢弃，即使还剩足够长的有效商品序列。
+    assert all(x.user_id != 'u00' for split in (data.train, data.test) for x in split)
     assert 'INVALID' not in data.catalog and 'RARE' not in data.catalog
 
 
@@ -126,7 +123,7 @@ def test_paper_rejects_implicit_validation_split(tmp_path):
     """论文两切分配置不能悄悄变成三切分。"""
     reviews, metadata, _, _ = make_files(tmp_path)
     with pytest.raises(ValueError, match='train_ratio=0.9'):
-        prepare_amazon(reviews, metadata, tmp_path / 'result', protocol='paper')
+        prepare_amazon(reviews, metadata, tmp_path / 'result', protocol='paper',train_ratio=.8,valid_ratio=.1)
 
 
 def test_cli_rejects_empty_validation_metrics(tmp_path, monkeypatch):
@@ -143,3 +140,24 @@ def test_cli_rejects_empty_validation_metrics(tmp_path, monkeypatch):
     monkeypatch.setattr(sys, 'argv', ['ese_agp', 'baseline', '--config', str(config_path)])
     with pytest.raises(ValueError, match='Selected split is empty'):
         main()
+
+
+@pytest.mark.parametrize('length,history_limit',[(2,20),(20,20),(21,20),(25,20),(25,2)])
+def test_history_limit_excludes_target_and_keeps_exact_recent_order(tmp_path,length,history_limit):
+    """目标永远为原会话最后一次；短会话不补长，长会话保留最近20条历史。"""
+    names=[f'ITEM{i:02}' for i in range(length)]
+    rows=[{'user_id':f'user{u}','parent_asin':name,'timestamp':1600000000000+u*86400000+i}
+          for u in range(10) for i,name in enumerate(names)]
+    meta=[{'parent_asin':name,'categories':['Music','Rock'],'price':10+i} for i,name in enumerate(names)]
+    review=tmp_path/'reviews.gz';metadata=tmp_path/'metadata.gz'
+    write_rows(review,rows);write_rows(metadata,meta)
+    prepare_amazon(review,metadata,tmp_path/'result',protocol='paper',train_ratio=.9,valid_ratio=0,
+                   min_user_events=1,min_item_events=1,max_session_length=history_limit)
+    data=PreparedArtifact(tmp_path/'result')
+    expected=tuple(data.catalog[name] for name in names[:-1][-history_limit:])
+    for ex in [*data.train,*data.test]:
+        assert ex.input_item_ids==expected
+        assert ex.target_item_id==data.catalog[names[-1]]
+        assert len(ex.input_item_ids)==min(length-1,history_limit)
+    assert data.manifest['parameters']['max_history_length']==history_limit
+    assert data.manifest['parameters']['max_retained_events']==history_limit+1

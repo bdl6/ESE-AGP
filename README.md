@@ -1,3 +1,10 @@
+> 当前预处理版本：`configs/amazon_cds_paper_drop_session.yaml`。低频商品出现时整段丢弃该会话，循环过滤至收敛，历史输入最多20次、目标另算。v4数据共66336会话、12492商品，详见[会话完整性规则及验收](docs/DROP_BROKEN_SESSIONS.md)。历史数据/图/指标保留，新版本尚未重训。
+
+> 2026-11-01：当前预处理配置为 `configs/amazon_cds_paper_iterative.yaml`：固定24小时窗口，全局用户/商品/会话过滤直到收敛，输入最多20次、目标另算。数据保存于 `data/processed/amazon_cds_paper_iterative_v3/`，行为图为 `data/graphs/paper_iterative_v3/behavior.json`。验收与论文统计差异见 [迭代过滤说明](docs/ITERATIVE_FILTER.md)。历史实验配置和指标仍保留，新数据尚未重训。
+
+> 2026-11-01 当前规则：全局收敛过滤、全体保留商品共用词表、会话随机划分；行为图只读训练会话。旧训练词表预处理已删除，历史数据/模型不覆盖。详见 `docs/VOCABULARY_RULE_CLEANUP.md`。
+
+
 > 当前 `configs/amazon_cds.yaml` / `amazon_cds_id_only.yaml` 已切换为第三章论文的全局过滤、随机会话 9:1 协议。
 
 > 目录已按职责重组：模型在 `src/ese_agp/models/`，训练评估在 `src/ese_agp/training/`，数据在 `src/ese_agp/data/`。旧文件名对照与阅读顺序见 [docs/PROJECT_STRUCTURE.md](docs/PROJECT_STRUCTURE.md)。历史报告中的源码名称对应当时版本。
@@ -5,7 +12,7 @@
 
 > 2026-10-29 Day03 更新：训练行为图、可选稀疏全局 GNN、属性初始化对照和实体试抽取离线接口已实现。61项测试通过。主配置现为论文随机9:1协议，历史时间协议结果不可混比。正式实验进度见 `runs/day03_jobs_status.json`；讲解见 `docs/DAY3.md`。实体服务尚未配置，未执行抽取、人工审核或付费调用。下文早期设计/结果保留为历史记录。
 
-> 旧时间协议使用 `configs/amazon_cds_temporal.yaml` / `amazon_cds_id_only_temporal.yaml`；历史数据和结果保留。
+> 旧训练专属词表时间协议及其两份配置已移除。正式数据使用 `configs/amazon_cds_paper_iterative.yaml`；人工调试使用 `configs/tiny.yaml`，同样覆盖全体保留商品。历史产物仅用于追溯。
 > 新协议没有独立验证集，固定轮数保存最后一轮；详细步骤与实现选择见 [论文数据协议](docs/PAPER_DATA_PROTOCOL.md)。
 
 # ESE-AGP
@@ -47,10 +54,10 @@ CUDA_VISIBLE_DEVICES=7 .venv/bin/python -m ese_agp evaluate --config configs/ama
 
 - Amazon 是评论/评分记录，由它构造的是代理会话，不是实际点击日志；商品元数据/价格是快照。
 - 以用户首次事件锚定固定 24 小时窗口，至少两次交互；先按原始会话结束时间确定 80%/10%/10% 分位边界，删除跨界会话，再做训练内过滤。
-- 用户至少 3 次、商品至少 5 次。商品须有有效末级类别与正价格。目录和类别/价格统计只从训练期拟合，不使用评估商品或反馈列拟合特征。
+- 用户至少 3 次、商品至少 5 次。商品须有有效末级类别与正价格。用户/商品阈值在全局会话上迭代到收敛；商品词表与类别/价格统计覆盖全部保留商品元数据，行为图和热门统计只来自训练会话。不按训练未见删除测试交互，不使用评分等反馈列作商品特征。
 - 最近最多 20 次含目标，输入最多 19 次。未知交互保留为 0，不补连未知位置两侧；未知评估目标计入全分母 miss，全未知历史走训练热门。
 - ID/类别/类内相对价格档位各自查 embedding，拼接投影后输入局部 GNN。价格使用论文式 3-28..31，档位平移到 1..50，0 预留。
-- GNN 聚合入邻居并有独立自节点通路；按原点击位置平均，重复商品多次参与池化。候选为全部训练目录，允许已见商品再次推荐，并列按 ID 升序。
+- GNN 聚合入邻居并有独立自节点通路；按原点击位置平均，重复商品多次参与池化。候选为全部统一商品词表，允许已见商品再次推荐，并列按 ID 升序。
 - 候选点积分块后拼成全 logits，只计算一次完整交叉熵，不逐块归一化。评价只把 Top-K 排名传回 CPU。
 - 主指标 HR@20/MRR@20，另报已知目标子集和 OOV 比例。日常比较使用验证集，测试集只在最终方案确定后显式 `--split test`。
 - checkpoint 绑定完整数据/目录/属性身份，支持推理加载；尚无训练断点续跑命令。
@@ -61,7 +68,7 @@ CUDA_VISIBLE_DEVICES=7 .venv/bin/python -m ese_agp evaluate --config configs/ama
 2. `docs/DAY2.md`：真实数据协议、商品特征、运行步骤和面试问答。
 3. `src/ese_agp/data.py` / `evaluation.py`：小数据参考实现、统一指标和基线。
 4. `src/ese_agp/features.py` / `model.py`：属性查表、融合、局部图与候选打分。
-5. `src/ese_agp/amazon.py` / `artifacts.py`：大文件处理、时间切分、Parquet 与指纹。
+5. `src/ese_agp/amazon.py` / `artifacts.py`：大文件处理、全局收敛过滤、随机会话划分、Parquet与指纹。
 6. `src/ese_agp/training.py`：训练、验证、早停、吞吐与保存加载。
 
 代码、配置和测试均有中文说明。完整目标及与论文的差异见 `PLAN.md`、`CODE_DESIGN.md`；软剪枝等后续设计不能当作已经实现的成果。
@@ -108,3 +115,7 @@ configs/                         # 现有配置路径不变
 docs/                            # 学习讲义与实验报告
 data/ / runs/                    # 数据、权重、日志产物
 ```
+
+## 论文实体工作流补齐
+
+联合实体/关系抽取、跨块聚合、带来源描述、LLM消歧和规范实体语义图已实现；入口为 `extract-workflow`。实现与限制见 [实体工作流说明](docs/ENTITY_WORKFLOW.md)。当前为小批真实验收，旧简化版100件结果不等于已完成全流程重跑。

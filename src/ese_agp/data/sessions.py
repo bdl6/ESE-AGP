@@ -1,8 +1,8 @@
 """把小型交互 JSONL 转成监督样本和会话局部图，不依赖 PyTorch。
 
-流程：按用户排序 → 固定 24 小时窗口 → 时间切分 → 训练期频次过滤/编号
-→ 前缀与标签 → 批内局部图。当前读取器把数据装入内存，适用于第一阶段排错；
-真实 Amazon 数据的大规模外部排序与元数据处理将在后续实现。
+流程：按用户排序 → 固定24小时窗口 → 全局迭代过滤 → 全量保留商品编号
+→ 随机会话划分 → 前缀与标签 → 批内局部图。此内存读取器仅用于小数据排错；
+真实Amazon数据使用amazon.py的磁盘SQL实现。
 时间戳单位为毫秒。编号 0 同时用于 padding/OOV，但保留未知交互的原始位置。
 """
 
@@ -12,7 +12,6 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass
 import hashlib
 import json
-import math
 from pathlib import Path
 from typing import Iterable, Sequence
 
@@ -48,7 +47,7 @@ class SessionExample:
     例如原始 [A,B,A,C] 得到 input_item_ids=(A,B,A)、target_item_id=C。
     商品均已映射为整数；验证/测试可含未知编号 0。起止时间保留截断前的值。
     """
-    # 已知商品编号 1..N；0 表示不在训练目录中的 OOV，序列不含预测目标。
+    # 已知商品编号 1..N；0 表示不在商品词表中的 OOV，序列不含预测目标。
     input_item_ids: tuple[int, ...]
     # 标签仍是商品 ID；交叉熵类别下标在训练器中转换为 target_item_id-1。
     target_item_id: int
@@ -61,11 +60,11 @@ class SessionExample:
 
 @dataclass
 class PreparedData:
-    """预处理产物：三份样本、训练目录映射、训练热门榜及可审计的规则/统计清单。"""
+    """预处理产物：三份样本、统一商品词表映射、训练热门榜及可审计的规则/统计清单。"""
     train: list[SessionExample]
     valid: list[SessionExample]
     test: list[SessionExample]
-    # 原始商品 ID → 训练目录编号 1..N；验证/测试的新商品不能扩充此表。
+    # 原始商品ID → 统一商品词表编号1..N，覆盖全部保留会话。
     catalog: dict[str, int]
     # 按训练频次降序排列的商品 ID 列表，不是频次数组；并列按 ID 升序。
     popularity: list[int]
@@ -80,7 +79,7 @@ class LocalGraph:
     不同会话的节点彼此独立，同一会话的重复商品共享节点；0 是共享虚拟节点。
     B=会话数，T=最长前缀长度（至少为 1），M=有效局部节点数，L=去重边数。
     """
-    # [M+1]：局部节点索引 → 训练商品 ID，第 0 项为虚拟节点。
+    # [M+1]：局部节点索引 → 商品词表ID，第 0 项为虚拟节点。
     node_item_ids: list[int]
     # 两行长度均为 L；每列是一条来源局部节点→接收局部节点的有向边。
     edge_index: tuple[list[int], list[int]]
@@ -129,11 +128,6 @@ def load_interactions_jsonl(path: str | Path) -> list[Interaction]:
     return result
 
 
-def _nearest_rank(values: Sequence[int], fraction: float) -> int:
-    """从已升序排列的非空 values 中取 nearest-rank 分位点，不做时间插值。"""
-    return values[max(0, math.ceil(len(values) * fraction) - 1)]
-
-
 def prepare(
     interactions: Iterable[Interaction],
     *,
@@ -142,30 +136,17 @@ def prepare(
     max_session_length: int = 20,
     train_ratio: float = 0.8,
     valid_ratio: float = 0.1,
+    split_seed: int = 42,
 ) -> PreparedData:
-    """将交互转换为 train/valid/test，每个有效会话只产生一个末项预测样本。
+    """小数据参考路径：全局收敛过滤、全量词表、随机会话划分。
 
-    Args:
-        interactions: Interaction 可迭代对象；时间戳单位为毫秒。
-        min_user_events: 训练期合格原始会话中的用户事件次数下限，默认 3。
-        min_item_events: 通过用户过滤后，训练期商品出现次数下限，默认 5。
-        max_session_length: 截取最近事件的上限，含最后目标，默认 20。
-        train_ratio: 按未过滤有效会话结束时间选取训练边界的分位比例，默认 0.8。
-        valid_ratio: 验证区间比例，默认 0.1；第二边界分位为前两者之和。
-    Returns:
-        PreparedData：所有编号/频次只从训练期拟合，验证测试未知目标保留为 0。
-
-    注意：先按原始时间切分并删跨界会话，再做一次 user→item 过滤，不是迭代 k-core。
-    训练目标被过滤就丢弃样本，不能向前找一件商品替换答案；输入中的 OOV 保留原位置。
-    并列时间和过滤可能改变实际比例，也可能使某个切分为空，训练器会进一步检查。
+    max_session_length只限制历史长度，目标额外保留。验证集仅用于人工调试，
+    正式Amazon论文路径使用9:1和空验证集；不按训练未见删除交互。
     """
-    if min_user_events < 1 or min_item_events < 1:
-        raise ValueError("frequency thresholds must be at least 1")
-    if max_session_length < 2:
-        raise ValueError("max_session_length must include an input and a target")
-    if not (0 < train_ratio < 1 and 0 < valid_ratio < 1 - train_ratio):
-        raise ValueError("ratios must leave nonempty train, validation and test intervals")
-
+    if min_user_events<1 or min_item_events<1:raise ValueError('frequency thresholds must be at least 1')
+    if max_session_length<1:raise ValueError('history limit must be positive')
+    if not (0<train_ratio<1 and 0<=valid_ratio<1-train_ratio):raise ValueError('ratios must leave train and test')
+    if not isinstance(split_seed,int) or split_seed<0:raise ValueError('split_seed must be nonnegative')
     records = list(interactions)
     if any(not isinstance(record, Interaction) for record in records):
         raise TypeError("interactions must contain Interaction objects")
@@ -202,73 +183,34 @@ def prepare(
     if not sessions:
         raise ValueError("no session has both an input and a target")
     sessions.sort(key=lambda session: (session.end, session.start, session.user_id, session.window))
-    # 3. 根据未过滤会话的原始结束时间确定两道边界，而非随机打散样本。
-    end_times = sorted(session.end for session in sessions)
-    train_end = _nearest_rank(end_times, train_ratio)
-    valid_end = _nearest_rank(end_times, train_ratio + valid_ratio)
-    raw_splits: dict[str, list[_RawSession]] = {"train": [], "valid": [], "test": []}
-    crossing = 0
-    for session in sessions:
-        # 跨越任一道时间边界的整个会话都删除，避免前缀与标签跨越训练/验证/测试。
-        if any(session.start <= boundary < session.end for boundary in (train_end, valid_end)):
-            crossing += 1
-        elif session.end <= train_end:
-            raw_splits["train"].append(session)
-        elif session.end <= valid_end:
-            raw_splits["valid"].append(session)
-        else:
-            raw_splits["test"].append(session)
-
-    # 4. 仅训练区间统计频次：先筛用户，再在合格用户的训练事件中筛商品。
-    user_counts = Counter(
-        session.user_id
-        for session in raw_splits["train"]
-        for _ in session.events
-    )
-    eligible_users = {user for user, count in user_counts.items() if count >= min_user_events}
-    item_counts = Counter(
-        event.item_id
-        for session in raw_splits["train"] if session.user_id in eligible_users
-        for event in session.events
-    )
-    # 按原始商品 ID 排序后稳定编号；从 1 开始，0 留给 padding/OOV。
-    catalog = {
-        item_id: index
-        for index, item_id in enumerate(
-            sorted(item for item, count in item_counts.items() if count >= min_item_events),
-            start=1,
-        )
-    }
-
-    # 5. 固定切分和训练目录后，才截取前缀/标签。未知评估用户不在此处被删除。
-    prepared: dict[str, list[SessionExample]] = {"train": [], "valid": [], "test": []}
-    removed_user_sessions = removed_target = removed_history = 0
-    for split, split_sessions in raw_splits.items():
-        for session in split_sessions:
-            if split == "train" and session.user_id not in eligible_users:
-                removed_user_sessions += 1
-                continue
-            # 截取最近的若干事件，上限包含最后目标，因此输入长度最多为上限减 1。
-            recent = session.events[-max_session_length:]
-            # 保留未知商品为 0；直接删除未知位置会错误连接原本不相邻的两件商品。
-            prefix = tuple(catalog.get(event.item_id, 0) for event in recent[:-1])
-            target = catalog.get(recent[-1].item_id, 0)
-            # 未知训练目标不能用于交叉熵；验证/测试仍保留未知目标，按未命中计分。
-            if split == "train" and target == 0:
-                removed_target += 1
-                continue
-            # 无已知历史的训练样本没有有效输入；评估样本仍保留，走训练热门榜降级。
-            if split == "train" and not any(prefix):
-                removed_history += 1
-                continue
-            prepared[split].append(SessionExample(
-                input_item_ids=prefix,
-                target_item_id=target,
-                user_id=session.user_id,
-                session_start=session.start,
-                session_end=session.end,
-                session_id=json.dumps([session.user_id, session.window], separators=(",", ":")),
-            ))
+    # 3. 固定窗口内反复筛除，用户/商品频次使用全体当前保留会话。
+    filter_rounds=[]
+    while True:
+        before=sum(len(x.events) for x in sessions)
+        users=Counter(x.user_id for x in sessions for _ in x.events)
+        active=[x for x in sessions if users[x.user_id]>=min_user_events]
+        items=Counter(e.item_id for x in active for e in x.events)
+        kept=[]
+        for x in active:
+            events=tuple(e for e in x.events if items[e.item_id]>=min_item_events)
+            if len(events)>=2:kept.append(_RawSession(x.user_id,x.window,events))
+        after=sum(len(x.events) for x in kept)
+        filter_rounds.append({'before':before,'after':after,'converged':before==after})
+        sessions=kept
+        if before==after:break
+    if not sessions:raise ValueError('No sessions survive global filtering')
+    # 4. 截取历史+独立目标；全部保留会话一起建立词表，随后随机分配会话。
+    selected={ (x.user_id,x.window):x.events[-(max_session_length+1):] for x in sessions }
+    catalog={item:i+1 for i,item in enumerate(sorted({e.item_id for events in selected.values() for e in events}))}
+    def session_id(x):
+        return hashlib.sha256((x.user_id+':'+str(x.window)).encode()).hexdigest()
+    ranked=sorted(sessions,key=lambda x:(hashlib.sha256((str(split_seed)+':'+session_id(x)).encode()).hexdigest(),x.user_id,x.window))
+    train_count=int(len(ranked)*train_ratio);valid_count=int(len(ranked)*valid_ratio)
+    split_by_key={(x.user_id,x.window):'train' if i<train_count else 'valid' if i<train_count+valid_count else 'test' for i,x in enumerate(ranked)}
+    prepared={name:[] for name in ['train','valid','test']}
+    for x in sorted(sessions,key=lambda x:(x.end,x.start,x.user_id,x.window)):
+        recent=selected[x.user_id,x.window];split=split_by_key[x.user_id,x.window]
+        prepared[split].append(SessionExample(tuple(catalog[e.item_id] for e in recent[:-1]),catalog[recent[-1].item_id],x.user_id,x.start,x.end,session_id(x)))
 
     # 6. 热门榜只统计最终保留训练样本的完整序列，包含它们的训练标签。
     train_counts = Counter(
@@ -279,38 +221,17 @@ def prepare(
     )
     popularity = sorted(catalog.values(), key=lambda item: (-train_counts[item], item))
     # 7. 保存规则和每步数量；这份清单可用于检查过滤损失、时间边界和 OOV。
-    manifest = {
-        "protocol": "tiny-jsonl-fixed24h-v1",
-        "timestamp_unit": "milliseconds",
-        "interactions_sha256": digest.hexdigest(),
-        "window_ms": DAY_MS,
-        "anchor": "first_event_per_user",
-        "duplicates": "preserved; equal timestamps retain input row order",
-        "boundary_method": "nearest_rank_raw_session_end; upper_boundary_inclusive",
-        "train_end": train_end,
-        "valid_end": valid_end,
-        "train_ratio": train_ratio,
-        "valid_ratio": valid_ratio,
-        "max_session_length_including_target": max_session_length,
-        "min_user_events": min_user_events,
-        "min_item_events": min_item_events,
-        "frequency_filter": "single_pass_user_then_item_train_only_before_truncation",
-        "raw_interactions": len(records),
-        "raw_sessions": len(raw_sessions),
-        "short_sessions_removed": len(raw_sessions) - len(sessions),
-        "crossing_sessions_removed": crossing,
-        "raw_split_sessions": {split: len(value) for split, value in raw_splits.items()},
-        "training_user_sessions_removed": removed_user_sessions,
-        "training_unknown_target_removed": removed_target,
-        "training_no_known_history_removed": removed_history,
-        "split_examples": {split: len(value) for split, value in prepared.items()},
-        "oov_targets": {
-            split: sum(example.target_item_id == 0 for example in value)
-            for split, value in prepared.items()
-        },
-        "catalog_size": len(catalog),
-        "train_item_counts": {str(item): count for item, count in sorted(train_counts.items())},
-    }
+    manifest={
+        'protocol':'tiny-jsonl-global-iterative-random-v2','timestamp_unit':'milliseconds',
+        'interactions_sha256':digest.hexdigest(),'window_ms':DAY_MS,'anchor':'first_event_per_user',
+        'duplicates':'preserved; equal timestamps retain input row order','train_ratio':train_ratio,'valid_ratio':valid_ratio,
+        'split_seed':split_seed,'max_history_length':max_session_length,'max_session_length_including_target':max_session_length+1,
+        'min_user_events':min_user_events,'min_item_events':min_item_events,
+        'frequency_filter':'global_until_convergence_before_split','filter_rounds':filter_rounds,
+        'raw_interactions':len(records),'raw_sessions':len(raw_sessions),'catalog_scope':'all_retained_products',
+        'split_examples':{split:len(value) for split,value in prepared.items()},
+        'oov_targets':{split:0 for split in prepared},'catalog_size':len(catalog),
+        'train_item_counts':{str(item):count for item,count in sorted(train_counts.items())}}
     return PreparedData(**prepared, catalog=catalog, popularity=popularity, manifest=manifest)
 
 

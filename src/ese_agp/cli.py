@@ -23,12 +23,17 @@ def main():
     # 子命令存入 args.command，每个命令单独声明自己需要的参数。
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("doctor", help="Check the active Python and a CUDA/CPU forward-backward pass")
-    for name in ("download", "prepare", "build-graphs", "prepare-entities", "baseline", "train", "evaluate"):
+    for name in ("download", "prepare", "build-graphs", "prepare-entities", "extract", "extract-workflow", "build-semantic", "fuse-graphs", "baseline", "train", "evaluate"):
         command = sub.add_parser(name)
         command.add_argument("--config", default="configs/amazon_cds.yaml" if name == "download" else "configs/tiny.yaml")
         # 默认只看验证集，避免日常调参反复查看测试结果。
         if name in {"baseline", "evaluate"}:
             command.add_argument("--split", choices=("valid", "test"), default="valid")
+        if name in {'build-semantic','fuse-graphs'}:
+            command.add_argument('--allow-partial',action='store_true',help='Diagnostic partial graph; training rejects it')
+        if name=='prepare-entities':
+            command.add_argument('--limit',type=int,default=100)
+            command.add_argument('--output')
     args = parser.parse_args()
     # 放在参数解析之后导入，使 --help 不必加载较重的 PyTorch。
     import torch
@@ -91,9 +96,34 @@ def main():
         raise ValueError("Selected split is empty. Paper 9:1 has no valid split; use --split test only for final evaluation.")
     if args.command == "prepare-entities":
         from ese_agp.entities.extraction import prepare_entity_pilot
-        results = prepare_entity_pilot(data, output.parent.parent / 'entities' / ('pilot_' + data.fingerprint[:12]))
+        results = prepare_entity_pilot(data, args.output or output.parent.parent / 'entities' / ('pilot_' + data.fingerprint[:12]), limit=args.limit)
         print(json.dumps(results, ensure_ascii=False, indent=2))
         return
+    if args.command=='extract-workflow':
+        from ese_agp.entities.client import ChatClient
+        from ese_agp.entities.workflow import run_workflow
+        results=run_workflow(data,config,ChatClient(config['entities']))
+        print(json.dumps(results,ensure_ascii=False,indent=2));return
+    if args.command=='extract':
+        from ese_agp.entities.client import ChatClient
+        from ese_agp.entities.pipeline import extract_requests
+        results=extract_requests(data,config['entities'],ChatClient(config['entities']))
+        print(json.dumps(results,ensure_ascii=False,indent=2));return
+    if args.command in {'build-semantic','fuse-graphs'}:
+        from ese_agp.graphs.behavior import save_graph,load_graph
+        if args.command=='build-semantic':
+            from ese_agp.graphs.semantic import build_semantic_graph
+            results=build_semantic_graph(data,Path(config['entities']['output'])/'entities.json',
+                 config['graph'].get('top_k',20),args.allow_partial,config['graph'].get('max_candidate_pairs',50000000))
+            path=config['graph']['semantic_path']
+        else:
+            from ese_agp.graphs.fusion import fuse_graphs
+            results=fuse_graphs(load_graph(config['graph']['behavior_path'],data),
+                 load_graph(config['graph']['semantic_path'],data,allow_partial=args.allow_partial),
+                 config['graph'].get('beta',.5),allow_partial=args.allow_partial)
+            path=config['graph']['path']
+        save_graph(results,path)
+        print(json.dumps({k:v for k,v in results.items() if k not in {'edge_index','edge_weight'}},ensure_ascii=False,indent=2));return
     if args.command == "build-graphs":
         from ese_agp.graphs.behavior import build_behavior_graph, save_graph, load_graph
         path = Path(config['graph']['path'])

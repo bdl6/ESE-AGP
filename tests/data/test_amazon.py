@@ -1,4 +1,4 @@
-"""Day02 验收：Amazon schema、训练内属性、OOV、Parquet、梯度和保存加载。"""
+"""Amazon验收：统一词表、全局属性、Parquet、梯度和保存加载。"""
 import copy
 import gzip
 import json
@@ -72,10 +72,10 @@ def test_amazon_matches_reference_sessions_and_attributes(amazon_fixture):
     """合法输入下 SQL 版的切分、顺序和标签与小数据参考实现一致。"""
     data,rows,_=amazon_fixture
     reference=prepare([Interaction(x['user_id'],x['parent_asin'],x['timestamp']) for x in rows],
-                      min_user_events=1,min_item_events=1)
+                      min_user_events=1,min_item_events=1,train_ratio=.9,valid_ratio=0)
     assert data.catalog==reference.catalog
     assert data.popularity==reference.popularity
-    assert [len(data.train),len(data.valid),len(data.test)]==[16,2,2]
+    assert [len(data.train),len(data.valid),len(data.test)]==[18,0,2]
     for split in ('train','valid','test'):
         actual=getattr(data,split)
         expected=getattr(reference,split)
@@ -89,39 +89,6 @@ def test_amazon_matches_reference_sessions_and_attributes(amazon_fixture):
     assert 'average_rating' not in products[0]
 
 
-def test_missing_metadata_and_heldout_items_never_bridge_or_fit(tmp_path):
-    """缺元数据/价格的商品保留 OOV 位置；验证商品的极端价格不能改变训练统计。"""
-    rows,meta=raw_rows()
-    # 第一会话 A→unknown→B→A，前缀应为 [A,0,B]，不能补出 A→B。
-    rows=[x for x in rows if x['user_id']!='u00']
-    rows += [{'user_id':'u00','parent_asin':item,'timestamp':1600000000000+i}
-             for i,item in enumerate(['A','NO_PRICE','B','A'])]
-    # 第 17 个会话属于验证期，把其目标换成仅验证出现的超贵商品。
-    for row in rows:
-        if row['user_id']=='u16' and row['timestamp']%86400000==(1600000000000+16*86400000+2)%86400000:
-            row['parent_asin']='HELDOUT'
-    meta += [{'parent_asin':'NO_PRICE','categories':['Music','Rock'],'price':None},
-             {'parent_asin':'HELDOUT','categories':['Music','Rock'],'price':999999},
-             {'parent_asin':'A','categories':['Other'],'price':500000}]
-    review_file=tmp_path/'reviews.gz';meta_file=tmp_path/'meta.gz'
-    write_gzip(review_file,rows);write_gzip(meta_file,meta)
-    prepare_amazon(review_file,meta_file,tmp_path/'a',min_user_events=1,min_item_events=1)
-    data=PreparedArtifact(tmp_path/'a')
-    assert data.catalog=={'A':1,'B':2,'C':3}
-    assert data.train[0].input_item_ids==(1,0,2)
-    assert prefix_to_local_graph([data.train[0].input_item_ids]).edge_index==([],[])
-    assert data.valid[0].target_item_id==0
-    assert data.manifest['stats']['metadata_invalid_price']==1
-    assert data.item_features['price_stats']['Rock']['mean']==15
-    # 只改 heldout 商品/文本，训练映射、价格统计和样本不变。
-    changed=[dict(row,parent_asin='OTHER_HELDOUT') if row['user_id'] in ['u16','u17','u18','u19'] else row for row in rows]
-    write_gzip(review_file,changed)
-    prepare_amazon(review_file,meta_file,tmp_path/'b',min_user_events=1,min_item_events=1)
-    second=PreparedArtifact(tmp_path/'b')
-    assert list(data.train)==list(second.train)
-    assert data.catalog==second.catalog
-    assert data.item_features==second.item_features
-    assert data.popularity==second.popularity
 
 
 def test_artifact_detects_modified_catalog(amazon_fixture):
@@ -174,30 +141,14 @@ def test_attribute_checkpoint_round_trip_on_parquet(amazon_fixture,tmp_path):
     data,_,_=amazon_fixture
     config={'data':{},'model':{'dim':8,'layers':1,'dropout':0.0,'use_item_features':True,'candidate_chunk_size':2},
             'training':{'device':'cpu','seed':42,'batch_size':8,'learning_rate':.01,'epochs':2,
-                        'patience':2,'top_k':2,'run_dir':str(tmp_path/'run')}}
+                        'patience':2,'top_k':2,'selection':'last_epoch','run_dir':str(tmp_path/'run')}}
     report=train(data,config)
     model=load_model(tmp_path/'run/best.pt',data,torch.device('cpu'))
-    metrics=evaluate_model(model,data.valid,data.popularity,torch.device('cpu'),8,2)
-    assert metrics==report['valid']
+    metrics=evaluate_model(model,data.test,data.popularity,torch.device('cpu'),8,2)
+    assert report['best_epoch']==2 and report['valid'] is None
+    assert all(math.isfinite(v) for v in metrics.values())
 
 
-def test_sql_split_uses_untruncated_boundaries(tmp_path):
-    """跨界会话即使截断后起点落入验证期，仍必须按原始起点整段删除。"""
-    base=1600000000000
-    specifications=[('a',[0,10]),('b',[0,20]),('c',[0,30]),('cross',[25,35,40]),
-                    ('valid',[45,50]),('test',[55,60])]
-    rows=[{'user_id':user,'parent_asin':'A' if i%2==0 else 'B','timestamp':base+t}
-          for user,times in specifications for i,t in enumerate(times)]
-    meta=[{'parent_asin':item,'categories':['Music'],'price':price} for item,price in [('A',10),('B',20)]]
-    review=tmp_path/'reviews.gz';metadata=tmp_path/'meta.gz'
-    write_gzip(review,rows);write_gzip(metadata,meta)
-    prepare_amazon(review,metadata,tmp_path/'result',min_user_events=1,min_item_events=1,
-                   max_session_length=2,train_ratio=.5,valid_ratio=1/3)
-    data=PreparedArtifact(tmp_path/'result')
-    assert data.manifest['stats']['crossing_sessions_removed']==1
-    assert {x.user_id for x in data.train}=={'a','b','c'}
-    assert [x.user_id for x in data.valid]==['valid']
-    assert [x.user_id for x in data.test]==['test']
 
 
 def test_id_and_attribute_models_share_initial_common_weights(amazon_fixture):
@@ -222,4 +173,28 @@ def test_timestamp_fallback_and_invalid_fields_are_counted(tmp_path):
     data=PreparedArtifact(tmp_path/'output')
     assert data.manifest['stats']['invalid_review_fields']==1
     assert data.manifest['stats']['selected_interactions']==60
-    assert [len(data.train),len(data.valid),len(data.test)]==[16,2,2]
+    assert [len(data.train),len(data.valid),len(data.test)]==[18,0,2]
+
+
+def test_legacy_temporal_protocol_cannot_be_selected(tmp_path):
+    """删除旧分支后显式拒绝历史协议，不悄悄执行不同词表规则。"""
+    with pytest.raises(ValueError,match='Only paper protocol'):
+        prepare_amazon(tmp_path/'missing.gz',tmp_path/'missing-meta.gz',tmp_path/'result',protocol='temporal')
+    assert not (tmp_path/'result').exists()
+
+
+def test_invalid_metadata_deleted_before_global_vocabulary(tmp_path):
+    """删除无效元数据是全局清洗；不以训练未见为理由删除有效商品。"""
+    rows,meta=raw_rows()
+    rows=[x for x in rows if x['user_id']!='u00']
+    rows += [{'user_id':'u00','parent_asin':item,'timestamp':1600000000000+i} for i,item in enumerate(['A','NO_PRICE','B','A'])]
+    meta += [{'parent_asin':'NO_PRICE','categories':['Music','Rock'],'price':None}]
+    review=tmp_path/'reviews.gz';metadata=tmp_path/'metadata.gz'
+    write_gzip(review,rows);write_gzip(metadata,meta)
+    prepare_amazon(review,metadata,tmp_path/'result',min_user_events=1,min_item_events=1)
+    data=PreparedArtifact(tmp_path/'result')
+    assert 'NO_PRICE' not in data.catalog
+    ex=next(x for split in [data.train,data.test] for x in split if x.user_id=='u00')
+    assert ex.input_item_ids==(data.catalog['A'],data.catalog['B'])
+    assert ex.target_item_id==data.catalog['A']
+    assert data.manifest['stats']['oov_targets']=={'train':0,'valid':0,'test':0}

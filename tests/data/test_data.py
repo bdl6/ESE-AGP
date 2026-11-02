@@ -1,4 +1,4 @@
-"""数据处理的手工样例：检验窗口、时间边界、训练内拟合和局部图结构。"""
+"""数据处理的手工样例：检验固定窗口、统一词表、全局过滤和局部图结构。"""
 from pathlib import Path
 
 import pytest
@@ -20,88 +20,18 @@ def test_fixed_windows_are_anchored_not_inactivity_sessions():
         Interaction("u", "B", 2 * DAY_MS - 1),
     ]
     result = prepare(interactions, min_user_events=1, min_item_events=1)
-    assert len(result.train) == 2
-    assert [(s.session_start, s.session_end) for s in result.train] == [
+    assert len(result.train)+len(result.test) == 2
+    assert [(s.session_start, s.session_end) for s in sorted([*result.train,*result.test],key=lambda x:x.session_start)] == [
         (0, DAY_MS - 1), (DAY_MS + 1, 2 * DAY_MS - 1)
     ]
 
 
-def test_raw_boundaries_are_kept_before_truncation_and_crossing_is_removed():
-    """验证先按原始起止时间删跨界会话；不能先截断再把跨界样本误留到后续集合。"""
-    interactions = [
-        Interaction("a", "A", 0), Interaction("a", "B", 10),
-        Interaction("b", "A", 0), Interaction("b", "B", 20),
-        Interaction("crossing", "A", 15), Interaction("crossing", "A", 25),
-        Interaction("crossing", "B", 30),
-        Interaction("d", "A", 35), Interaction("d", "B", 40),
-    ]
-    result = prepare(interactions, min_user_events=1, min_item_events=1,
-                     max_session_length=2, train_ratio=.5, valid_ratio=.25)
-    assert result.manifest["train_end"] == 20
-    assert result.manifest["valid_end"] == 30
-    assert result.manifest["crossing_sessions_removed"] == 1
-    assert {s.user_id for s in result.train} == {"a", "b"}
-    assert [s.user_id for s in result.test] == ["d"]
-    assert result.train[1].session_start == 0
 
 
-def test_train_filters_never_move_target_and_oov_positions_do_not_bridge():
-    """低频目标被过滤后应丢样本，不能换标签；前缀 OOV 保留位置，不能补出跨越边。"""
-    interactions = _session("u0", 0, ["A", "rare-prefix", "B", "A"])
-    interactions += _session("u1", 1, ["A", "B", "rare-target"])
-    for day in range(2, 8):
-        interactions += _session(f"u{day}", day, ["A", "B", "A"])
-    interactions += _session("valid", 8, ["A", "new", "B", "valid-target"])
-    interactions += _session("test", 9, ["new", "test-target"])
-    result = prepare(interactions, min_user_events=1, min_item_events=2)
-    assert result.catalog == {"A": 1, "B": 2}
-    first = result.train[0]
-    assert first.input_item_ids == (1, 0, 2)
-    assert first.target_item_id == 1
-    assert "u1" not in {s.user_id for s in result.train}
-    assert result.manifest["training_unknown_target_removed"] == 1
-    assert result.valid[0].input_item_ids == (1, 0, 2)
-    assert result.valid[0].target_item_id == 0
-    assert result.test[0].input_item_ids == (0,)
-    assert result.test[0].target_item_id == 0
-    assert prefix_to_local_graph([first.input_item_ids]).edge_index == ([], [])
 
 
-def test_heldout_item_changes_cannot_change_training_catalog_or_popularity():
-    """只替换验证/测试商品，训练样本、商品映射和热门榜应完全不变。"""
-    original = []
-    for day in range(10):
-        original += _session(f"u{day}", day, ["A", "B", "A"])
-    changed = [
-        Interaction(row.user_id, "never-trained" if row.user_id in {"u8", "u9"} else row.item_id,
-                    row.timestamp)
-        for row in original
-    ]
-    first = prepare(original)
-    second = prepare(changed)
-    assert first.catalog == second.catalog
-    assert first.train == second.train
-    assert first.popularity == second.popularity
-    assert first.manifest["train_item_counts"] == second.manifest["train_item_counts"]
-    assert first.manifest["train_end"] == second.manifest["train_end"]
 
 
-def test_user_filter_is_fitted_only_on_train_and_max_length_includes_target():
-    """检验训练内用户阈值、长度上限含目标，以及未知评估用户仍保留样本。"""
-    rows = []
-    for day in range(10):
-        items = ["A", "B"] if day == 0 else ["A", "B", "C", "A"]
-        rows += _session(f"u{day}", day, items)
-    result = prepare(rows, min_user_events=3, min_item_events=1, max_session_length=3)
-    assert "u0" not in {s.user_id for s in result.train}
-    assert result.manifest["training_user_sessions_removed"] == 1
-    assert len(result.train[0].input_item_ids) == 2
-    assert result.train[0].target_item_id == result.catalog["A"]
-    assert result.train[0].session_start == DAY_MS
-    assert result.train[0].session_end == DAY_MS + 3
-    # 验证/测试中未见的用户仍然可以根据当前会话推荐，不能因训练期没有该用户而删样本。
-    assert [s.user_id for s in result.valid] == ["u8"]
-    assert [s.user_id for s in result.test] == ["u9"]
 
 
 def test_local_graph_is_disjoint_and_preserves_repeats_masks_and_self_edges():
@@ -141,3 +71,29 @@ def test_invalid_inputs_have_actionable_errors(tmp_path):
     path.write_text('{"user_id":"u","timestamp":0}\n', encoding="utf-8")
     with pytest.raises(ValueError, match="line 1"):
         load_interactions_jsonl(path)
+
+
+def test_debug_vocabulary_contains_test_only_items_without_deleting_history():
+    """测试独有商品仍有合法ID，不删除中间点击或重新连接历史。"""
+    rows=[]
+    for day in range(10):rows+=_session(f'u{day}',day,['A','B','C'])
+    before=prepare(rows,min_user_events=1,min_item_events=1)
+    heldout=before.test[0].user_id
+    changed=[Interaction(r.user_id,'ONLY_TEST' if r.user_id==heldout and r.item_id=='B' else r.item_id,r.timestamp) for r in rows]
+    result=prepare(changed,min_user_events=1,min_item_events=1)
+    ex=next(x for x in result.test if x.user_id==heldout)
+    assert 'ONLY_TEST' in result.catalog
+    assert ex.input_item_ids==(result.catalog['A'],result.catalog['ONLY_TEST'])
+    assert all(result.catalog['ONLY_TEST'] not in (*x.input_item_ids,x.target_item_id) for x in result.train)
+    assert all(i>0 for split in [result.train,result.valid,result.test] for x in split for i in (*x.input_item_ids,x.target_item_id))
+
+
+def test_debug_global_filter_and_history_length_match_current_rule():
+    """频次在全局迭代，输入长度不包含独立预测目标。"""
+    rows=[]
+    for day in range(10):rows+=_session(f'u{day}',day,['A','B','C','A','B'])
+    result=prepare(rows,min_user_events=3,min_item_events=5,max_session_length=3)
+    for x in [*result.train,*result.valid,*result.test]:
+        assert x.input_item_ids==(result.catalog['B'],result.catalog['C'],result.catalog['A'])
+        assert x.target_item_id==result.catalog['B']
+    assert result.manifest['filter_rounds'][-1]['converged']

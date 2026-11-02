@@ -80,3 +80,15 @@ Day03 执行脚本的新路径为 `scripts/training/run_day03.py`；它仍拒绝
 历史实验的源码摘要描述当时的代码，不改写这些记录；新训练自动记录当前目录下全部Python源码。
 历史Day03冻结协议仍为 `runs/day03_experiment_protocol.json`；新入口使用单独的 `runs/day03_refactored_protocol.json`。
 验收证据：`runs/layout_tests.log`、`runs/layout_verification.json`；变更前备份路径见 `runs/layout_backup.json`。
+
+
+## 论文实体工作流新增模块
+
+- `entities/joint.py`：联合实体/关系结构、证据定位、描述和消歧提示词。
+- `entities/aggregation.py`：跨块跨轮聚合、规范实体映射和关系重写。
+- `entities/disambiguation.py`：候选生成及基于双方来源的合并校验。
+- `entities/workflow.py`：阶段缓存、请求限额、分层描述及审查、完整流程编排。
+- `entities/client.py`：自托管生成服务适配。
+- `entities/pipeline.py`、`extraction.py`：原简化版抽取仍保留供对照。
+
+新入口为 `extract-workflow`；说明见 `ENTITY_WORKFLOW.md`，真实验收见 `ENTITY_WORKFLOW_REPORT.md`。

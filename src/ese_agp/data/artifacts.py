@@ -53,7 +53,7 @@ class ParquetSessions(Sequence):
 
 
 class PreparedArtifact:
-    """真实数据的运行时容器；对训练器提供与小数据一致的属性和训练目录。"""
+    """真实数据的运行时容器；对训练器提供与小数据一致的属性和商品词表。"""
     def __init__(self, directory, verify=True):
         """加载产物并验证文件内容；避免商品映射/特征被替换后继续用旧 checkpoint。"""
         self.directory = Path(directory)

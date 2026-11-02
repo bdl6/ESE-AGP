@@ -5,7 +5,7 @@ from torch import nn
 class ItemAttributeEncoder(nn.Module):
     """查类别/价格表，与已有 ID 向量拼接再投影；三张表都接受推荐损失梯度。"""
     def __init__(self, dim, num_items, features, initialization="legacy"):
-        """features 必须来自与模型同一训练目录，编号 0 的属性必须为零。"""
+        """features 必须来自与模型同一商品词表，编号 0 的属性必须为零。"""
         super().__init__()
         categories = features['category_ids']
         prices = features['price_bin_ids']

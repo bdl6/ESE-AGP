@@ -23,7 +23,7 @@ class PopularityBaseline:
     def fit(cls, train: Iterable[Any], num_items: int) -> PopularityBaseline:
         """从 train 样本统计已知商品出现次数并缓存排名，返回基线实例。
 
-        num_items 为训练目录大小，不含 0；此处不读取任何验证/测试标签。
+        num_items 为商品词表大小，不含 0；此处不读取任何验证/测试标签。
         """
         num_items = _integer(num_items, "num_items", minimum=1)
         counts = [0] * (num_items + 1)
@@ -96,7 +96,7 @@ class TransitionBaseline:
         # 末尾未知时不向前跨位置寻找另一个末项，统一交给训练热门榜。
         if not items or items[-1] == 0:
             return self.popularity.recommend(items, top_k)
-        # 对所有训练目录商品排序，包括没有观测后继的零分候选，不过滤已见商品。
+        # 对所有商品词表商品排序，包括没有观测后继的零分候选，不过滤已见商品。
         counts = self.transitions.get(items[-1], {})
         # 正转移计数永远排在零分候选前；只排序非零后继，再按 ID 补零分项。
         # 与全目录排序完全同口径，但避免每个样本都对 N 个商品排序。

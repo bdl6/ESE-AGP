@@ -55,7 +55,7 @@ def train(data: PreparedData, config: dict) -> dict:
         torch.cuda.reset_peak_memory_stats(device)
     # 这是小图排错版本，限制 CPU 线程数，减少过大线程池的调度开销。
     torch.set_num_threads(min(4, torch.get_num_threads()))
-    # 模型规模由训练目录确定；Adam 管理 embedding、图层和预测头的所有已注册参数。
+    # 模型规模由商品词表确定；Adam 管理 embedding、图层和预测头的所有已注册参数。
     model = create_model(data, config, device)
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg["learning_rate"])
     run_dir = Path(cfg["run_dir"])

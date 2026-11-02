@@ -11,7 +11,7 @@ def evaluate_rankings(
 
     Args:
         rankings: 每个样本按预测分数排序的商品 ID 序列，序列内部不能重复或包含 0。
-        targets: 与 rankings 一一对应的真实商品 ID；0 代表不在训练目录内的未知目标。
+        targets: 与 rankings 一一对应的真实商品 ID；0 代表不在商品词表内的未知目标。
         k: 排名前 k 个位置参与计分，k 必须为正整数。
     Returns:
         hr@k = 命中样本数 / 全部样本数；

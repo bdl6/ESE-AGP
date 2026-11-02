@@ -2,6 +2,7 @@
 from collections import Counter
 import hashlib
 import json
+import math
 from pathlib import Path
 import torch
 
@@ -44,7 +45,7 @@ def save_graph(graph, path):
         json.dump(graph, stream, ensure_ascii=False, allow_nan=False)
 
 
-def load_graph(path, data):
+def load_graph(path, data, allow_partial=False):
     """拒绝文件篡改、目录错配、非法边和不一致的归一计数。"""
     from ese_agp.data.io import data_fingerprint
     graph = json.loads(Path(path).read_text())
@@ -52,12 +53,24 @@ def load_graph(path, data):
         raise ValueError('Graph fingerprint mismatch')
     if graph['data_fingerprint'] != data_fingerprint(data) or graph['num_items'] != len(data.catalog):
         raise ValueError('Graph and dataset fingerprints do not match')
+    kinds={'train_adjacent_directed_source_normalized','semantic_idf_topk_source_normalized','behavior_semantic_beta_fusion'}
+    if graph.get('kind') not in kinds:raise ValueError('Unsupported graph kind')
+    if graph.get('scope','full')!='full' and not allow_partial:raise ValueError('Partial graph not allowed for training')
     src, dst = graph['edge_index']
     edges = list(zip(src, dst))
-    if not len(src) == len(dst) == len(graph['counts']) == len(graph['edge_weight']) == graph['num_edges']:
+    if not len(src) == len(dst) == len(graph['edge_weight']) == graph['num_edges']:
         raise ValueError('Graph edge array lengths differ')
     if edges != sorted(set(edges)) or any(not 1 <= i <= graph['num_items'] for e in edges for i in e):
         raise ValueError('Invalid graph edge IDs/order')
+    if any(not math.isfinite(w) or w<=0 for w in graph['edge_weight']):raise ValueError('Invalid edge weights')
+    if graph['kind']!='train_adjacent_directed_source_normalized':
+        sums=Counter()
+        for u,w in zip(src,graph['edge_weight']):sums[u]+=w
+        if any(w>1+1e-6 for w in sums.values()):raise ValueError('Graph row weight exceeds one')
+        if graph['kind']=='semantic_idf_topk_source_normalized' and any(abs(w-1)>1e-6 for w in sums.values()):
+            raise ValueError('Semantic graph rows not normalized')
+        return graph
+    if len(graph['counts'])!=len(src):raise ValueError('Graph count lengths differ')
     totals = Counter()
     for u, c in zip(src, graph['counts']):
         if not isinstance(c, int) or c < 1: raise ValueError('Invalid edge count')

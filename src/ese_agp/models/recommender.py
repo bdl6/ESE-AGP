@@ -7,7 +7,7 @@ from ese_agp.models.local_graph import LocalGraphEncoder
 from ese_agp.models.embeddings import ItemAttributeEncoder
 
 class LocalSessionRecommender(nn.Module):
-    """局部图＋单视角的下一商品预测器，返回全部训练目录候选的原始分数。
+    """局部图＋单视角的下一商品预测器，返回全部商品词表候选的原始分数。
 
     这是完整 ESE-AGP 之前的学习基线，先验证数据、图层、损失和优化器能否连通。
     """

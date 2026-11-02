@@ -4,16 +4,16 @@ data:
   # 人工构造的原始 JSONL，不是 Amazon 真实点击日志。
   input: examples/tiny_interactions.jsonl
   # prepare 输出的样本、目录和统计清单，后续命令共用这一份产物。
-  output: data/processed/tiny.json
-  # 训练期用户事件下限；小数据调试用 1，主实验计划为 3。
+  output: data/processed/tiny_global_v2.json
+  # 全局用户事件下限；小数据调试用 1，主实验计划为 3。
   min_user_events: 1
-  # 训练期商品事件下限；小数据调试用 1，主实验计划为 5。
+  # 全局商品事件下限；小数据调试用 1，主实验计划为 5。
   min_item_events: 1
-  # 每个会话最多保留最近 20 次事件，包含最后目标，所以前缀最多 19 次。
+  # 历史输入最多20次，最后目标额外保留。
   max_session_length: 20
-  # 按原始会话结束时间取训练分位边界，不是随机抽取 80% 样本。
+  # 会话随机划分80%训练、10%验证、10%测试，仅用于调试。
   train_ratio: 0.8
-  # 验证区间目标比例；第二边界为 0.8+0.1，剩余时间用于测试。
+  # 调试验证集比例；正式论文配置为9:1且无验证集。
   valid_ratio: 0.1
 # 第一阶段局部图模型；这些参数尚不包含全局图、实体特征或剪枝。
 model:
@@ -40,4 +40,4 @@ training:
   # HR/MRR 的排名截断；这里只有 3 个候选，HR@20 很高不能证明效果好。
   top_k: 20
   # 日志和 best.pt 的输出目录；重复训练会覆盖，同口径对比请用不同目录。
-  run_dir: runs/tiny
+  run_dir: runs/tiny_global_v2
