@@ -1,0 +1,3 @@
+graphrag==3.3.0
+PyYAML==6.0.3
+pytest==8.4.2

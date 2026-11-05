@@ -1,6 +1,7 @@
 """推荐模型的训练循环、实验环境记录和checkpoint保存。"""
 import hashlib
 import json
+import math
 import os
 import random
 import time
@@ -57,6 +58,10 @@ def train(data: PreparedData, config: dict) -> dict:
     torch.set_num_threads(min(4, torch.get_num_threads()))
     # 模型规模由商品词表确定；Adam 管理 embedding、图层和预测头的所有已注册参数。
     model = create_model(data, config, device)
+    pruning = model.pruner is not None
+    structure_weight = cfg.get("structure_loss_weight", 0.0)
+    if not math.isfinite(structure_weight) or structure_weight < 0 or pruning != (structure_weight > 0):
+        raise ValueError("Set a positive structure_loss_weight exactly when pruning is enabled")
     optimizer = torch.optim.Adam(model.parameters(), lr=cfg["learning_rate"])
     run_dir = Path(cfg["run_dir"])
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -73,7 +78,7 @@ def train(data: PreparedData, config: dict) -> dict:
                           for source in sorted(Path(__file__).resolve().parents[1].rglob("*.py"))},
         "determinism": "seeded; CUDA scatter/index reductions may be nondeterministic",
         "graph_fingerprint": model.graph_fingerprint,
-        "model_stage": "local_plus_behavior_global" if config["model"].get("use_global") else "local_graph_single_view_with_attributes" if config["model"].get("use_item_features") else "local_graph_single_view_id_only",
+        "model_stage": "pruned_global_multiview" if pruning and model.extra_views else "pruned_global" if pruning else "multiview" if model.extra_views else "local_plus_behavior_global" if config["model"].get("use_global") else "local_graph_single_view_with_attributes" if config["model"].get("use_item_features") else "local_graph_single_view_id_only",
     })
     # best_score 记录最好验证 MRR；stale 记录连续未提高轮数，供早停判断。
     best_score, best_epoch, stale = -1.0, -1, 0
@@ -86,16 +91,17 @@ def train(data: PreparedData, config: dict) -> dict:
             order = list(range(len(data.train)))
             # 每轮用可复核的不同顺序打乱训练样本，不改变预处理产物本身。
             random.Random(seed + epoch).shuffle(order)
-            loss_sum = 0.0
+            ce_sum = structure_sum = loss_sum = 0.0
             for start in range(0, len(order), batch_size):
                 rows = [data.train[i] for i in order[start:start + batch_size]]
                 batch = collate_examples(rows, device)
                 # 训练步骤 1：清掉上一批梯度；PyTorch 的梯度默认累积，否则会错误叠加。
                 optimizer.zero_grad(set_to_none=True)
                 # 训练步骤 2：前向得到 [B,N] raw logits，每行对应一个会话的全候选分数。
-                logits = model(batch)
+                logits, structure_loss = model(batch, return_structure_loss=True)
                 # 训练步骤 3：计算全候选交叉熵；不用先 softmax，标签要从商品编号减 1。
-                loss = F.cross_entropy(logits, batch.target_item_ids - 1)
+                ce = F.cross_entropy(logits, batch.target_item_ids - 1)
+                loss = ce + structure_weight * structure_loss
                 if not torch.isfinite(loss):
                     raise FloatingPointError(f"Nonfinite loss in epoch {epoch + 1}")
                 # 训练步骤 4：链式法则反传，从 loss 到预测头、图层和 ID embedding。
@@ -105,16 +111,22 @@ def train(data: PreparedData, config: dict) -> dict:
                 # 训练步骤 5：Adam 根据梯度更新参数。
                 optimizer.step()
                 # loss 默认按批平均，乘实际批大小再累计，防止最后一个小批次权重过高。
-                loss_sum += loss.item() * len(rows)
+                ce_sum += ce.item() * len(rows)
+                if pruning:
+                    structure_sum += structure_loss.item() * len(rows)
+                    loss_sum += loss.item() * len(rows)
             # 一轮训练结束，只在验证集计算排名指标；验证过程中不构建反向计算图。
             if device.type == "cuda":
                 torch.cuda.synchronize(device)
             train_seconds = time.perf_counter() - epoch_started
             metrics = evaluate_model(model, data.valid, data.popularity, device, batch_size, cfg["top_k"]) if data.valid else None
-            record = {"epoch": epoch + 1, "train_ce": loss_sum / len(data.train), "valid": metrics,
+            record = {"epoch": epoch + 1, "train_ce": ce_sum / len(data.train), "valid": metrics,
                       "elapsed_seconds": time.perf_counter() - beginning,
                       "train_seconds": train_seconds, "train_examples_per_second": len(data.train)/train_seconds,
                       "epoch_seconds": time.perf_counter()-epoch_started}
+            if pruning:
+                record.update(train_structure_loss=structure_sum / len(data.train),
+                              train_loss=loss_sum / len(data.train))
             log.write(json.dumps(record, allow_nan=False) + "\n")
             # 每轮立即刷盘，运行中即可查看 metrics.jsonl，不必等待整个训练结束。
             log.flush()

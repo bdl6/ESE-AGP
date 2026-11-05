@@ -216,6 +216,11 @@ def extract_product(runner, item, text, cfg, progress):
         results.extend(local);traces.extend(local_traces)
     for index,(offset,chunk) in enumerate(document_chunks(text,cfg.get('chunk_size',1600),cfg.get('overlap',200))):
         extract(chunk,offset,index)
+    if not any(r['entities'] for r in results):
+        # 商品标题是元数据已有事实；空抽取时保留product，不推断其他属性或关系。
+        from ese_agp.entities.joint import title_entity_result
+        fallback=title_entity_result(item,text)
+        if fallback is not None:results.append(fallback)
     return results,traces
 
 
@@ -267,7 +272,7 @@ def run_workflow(data, config, client):
     try:
         documents,known=select_documents(data,cfg)
         settings={k:cfg.get(k) for k in ['base_url','model','max_output_tokens','chunk_size','overlap','max_rounds','max_alias_pairs','alias_threshold','max_split_depth','min_chunk_chars','continue_on_error','concurrency','candidate_top_k','candidate_min_similarity','concise_outputs','item_scope']}
-        identity=hashlib.sha256(json.dumps([VERSION+'-optimized-v2',data_fingerprint(data),documents,settings],ensure_ascii=False,sort_keys=True).encode()).hexdigest()
+        identity=hashlib.sha256(json.dumps([VERSION+'-optimized-v4-title-grounded-fallback',data_fingerprint(data),documents,settings],ensure_ascii=False,sort_keys=True).encode()).hexdigest()
         runner=StageRunner(output,cfg,client,identity)
         rounds=cfg.get('max_rounds',3)
         if not isinstance(rounds,int) or rounds<1:raise ValueError('max_rounds must be positive')
@@ -322,10 +327,13 @@ def run_workflow(data, config, client):
         for key,value,error in parallel_results(describe_task,sorted(entities.items()),workers,preserve_order=False):
             if error:
                 if not cfg.get('continue_on_error',True):raise error
-                items={e['item_id'] for e in entities[key]['evidence']};failed_items.update(items)
+                items={e['item_id'] for e in entities[key]['evidence']}
+                # 描述失败只影响此实体的描述状态，保留已有原文实体链接。
+                entities[key]['description']=None
+                entities[key]['description_status']='pending'
                 record_failure(error,entity_id=key,item_ids=sorted(items))
             else:entities[key]['description']=value
-        # 描述阶段失败的商品整件排除，避免把不完整五步产物作为成功样本。
+        # 仅排除抽取本身失败的商品；描述失败不得扩大为整件商品失败。
         entities={k:e for k,e in entities.items() if not any(v['item_id'] in failed_items for v in e['evidence'])}
         relations={k:r for k,r in relations.items() if r['head'] in entities and r['tail'] in entities}
         limit=cfg.get('max_alias_pairs',100)
@@ -359,7 +367,10 @@ def run_workflow(data, config, client):
         for key,value,error in parallel_results(canonical_task,merged,workers,preserve_order=False):
             if error:
                 if not cfg.get('continue_on_error',True):raise error
-                items={e['item_id'] for e in registry[key]['evidence']};failed_items.update(items)
+                items={e['item_id'] for e in registry[key]['evidence']}
+                # 不把继承的单个成员描述伪装成合并描述；成员描述仍在descriptions中。
+                registry[key]['description']=None
+                registry[key]['description_status']='pending'
                 record_failure(error,canonical_id=key,item_ids=sorted(items))
             else:registry[key]['description']=value
         for name,body in [('entity_registry',{'entities':list(registry.values())}),('relations',{'relations':list(canonical_relations.values())}),

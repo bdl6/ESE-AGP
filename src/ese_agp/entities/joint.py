@@ -109,3 +109,14 @@ def validate_description_review(payload,evidence):
         raise ValueError('Description review schema invalid')
     validate_description({k:payload[k] for k in ['description','evidence_ids']},evidence)
     return payload
+
+
+def title_entity_result(item_id, text):
+    """只从明确title字段生成可验证的商品实体；不创造品牌、关系或描述。"""
+    match=re.search(r'^title: ([^\n]+)',text)
+    if not match or not match.group(1).strip():return None
+    title=match.group(1).strip()
+    result=validate_joint({'entities':[{'name':title,'type':'product','evidence':match.group(0)}],
+        'relations':[]},text,item_id,'title_metadata',0)
+    result.update(item_id=item_id,chunk_id='title_metadata',round=0,extraction_method='metadata_title_grounded')
+    return result

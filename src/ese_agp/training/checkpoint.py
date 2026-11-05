@@ -6,11 +6,12 @@ from ese_agp.data.io import data_fingerprint
 from ese_agp.models.recommender import LocalSessionRecommender
 
 def create_model(data, config, device, expected_graph=None):
-    """统一训练/加载入口，只有启用全局分支才读取并校验行为图。"""
+    """统一训练/加载入口，只有启用全局分支才读取并校验图。"""
     graph = None
     if config['model'].get('use_global'):
         from ese_agp.graphs.behavior import load_graph
-        graph = load_graph(config['graph']['path'], data)
+        graph_config = config['graph']
+        graph = load_graph(graph_config['path'], data, allow_partial=graph_config.get('allow_partial', False))
         if expected_graph is not None and graph['fingerprint'] != expected_graph:
             raise ValueError('Checkpoint graph fingerprint mismatch')
     return LocalSessionRecommender(len(data.catalog), **config['model'],

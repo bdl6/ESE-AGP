@@ -1,0 +1,44 @@
+# 低频商品所在会话整段删除；全局迭代收敛；20条历史+独立目标。
+data:
+  format: amazon2023
+  protocol: paper
+  split_seed: 42
+  reviews: data/raw/amazon2023/CDs_and_Vinyl.jsonl.gz
+  metadata: data/raw/amazon2023/meta_CDs_and_Vinyl.jsonl.gz
+  output: data/processed/amazon_cds_paper_drop_session_v4
+  min_user_events: 3
+  min_item_events: 5
+  max_session_length: 20
+  train_ratio: 0.9
+  valid_ratio: 0.0
+  user_sample_modulus: 1
+  threads: 4
+model:
+  dim: 256
+  layers: 2
+  dropout: 0.2
+  use_item_features: true
+  candidate_chunk_size: 2048
+  use_global: true
+  global_layers: 2
+  num_views: 3
+  # 剪枝和正则超参数为待校准的初值。
+  pruning:
+    layers: 2
+    threshold: 0.62
+    rho: 0.60
+training:
+  device: auto
+  seed: 42
+  selection: last_epoch
+  batch_size: 100
+  learning_rate: 0.001
+  epochs: 20
+  patience: 3
+  top_k: 20
+  structure_loss_weight: 0.1
+  run_dir: runs/ese_agp_graphrag_v4
+  cuda_memory_fraction: 0.1
+graph:
+  allow_partial: true
+  path: graphrag_pipeline/runs/catalog_v4_20261103/global_graph.json

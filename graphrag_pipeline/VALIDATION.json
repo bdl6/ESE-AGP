@@ -1,0 +1,32 @@
+{
+  "sdk_version": "3.3.0",
+  "tests_passed": 9,
+  "real_products": 3,
+  "entities": 13,
+  "relations": 11,
+  "semantic_edges": 2,
+  "index_status": {
+    "status": "complete",
+    "sdk_version": "3.3.0",
+    "workflows": [
+      "create_base_text_units",
+      "create_final_documents",
+      "extract_graph"
+    ],
+    "prompt_sha256": {
+      "extract_graph.txt": "e93bf60f9925f333d136b85cff9af5d5adc77292eb39af72e0fbfcd51af8a8b9",
+      "summarize_descriptions.txt": "87d154ae8fd98e9ca6bf27770e2bedde275a52719fb805131d98ddb2b9ccea92"
+    },
+    "stage": "extract_graph",
+    "workflow_errors": [],
+    "logged_errors": [],
+    "elapsed_seconds": 48.671151384711266
+  },
+  "original_tracked_files_modified": false,
+  "limitations": [
+    "official grouping is not LLM alias disambiguation",
+    "small sample only; no full run",
+    "semantic correctness still needs manual audit"
+  ],
+  "run": "runs/smoke_v3"
+}

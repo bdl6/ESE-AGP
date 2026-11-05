@@ -1,0 +1,9 @@
+.venv/
+runs/
+__pycache__/
+.pytest_cache/
+.env
+*.pyc
+.sdk_inspection/
+install.log
+sdk_wheel_inspection.txt

@@ -33,6 +33,7 @@ class ChatClient:
         """返回原始JSON；超时、HTTP错误交给执行器分类重试。"""
         body={'model':self.config['model'],'messages':[{'role':'system','content':prompt},
               {'role':'user','content':text}],'temperature':0,'max_tokens':self.config.get('max_output_tokens',1024)}
+        if self.config.get('json_mode',False):body['response_format']={'type':'json_object'}
         request=urllib.request.Request(self.endpoint,data=json.dumps(body).encode(),
             headers={'Content-Type':'application/json',**({'Authorization':'Bearer '+self.key} if self.key else {})},method='POST')
         with self.opener.open(request,timeout=self.config.get('timeout_seconds',60)) as response:
